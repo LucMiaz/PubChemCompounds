@@ -1,0 +1,31 @@
+# pyproject.toml
+
+[build-system]
+requires      = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pubchem"
+version = "0.0.1"
+description = "Pubchem"
+#readme = "README.md"
+authors = [{ name = "Luc Miaz", email = "luc@miaz.ch" }]
+#license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+    "Programming Language :: Python",
+    "Natural Language :: English",
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+]
+
+keywords = ["pubchem"]
+
+dependencies = [
+    "requests",
+    "numpy >=1.19.4",
+    "regex",
+    "datetime",
+    "tqdm >= 4.65.0"
+]
+requires-python = ">=3.6"

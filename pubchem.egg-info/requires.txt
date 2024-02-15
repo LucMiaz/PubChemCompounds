@@ -1,0 +1,5 @@
+requests
+numpy>=1.19.4
+regex
+datetime
+tqdm>=4.65.0

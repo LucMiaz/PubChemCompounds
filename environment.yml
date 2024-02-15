@@ -1,0 +1,6 @@
+name: pubchem
+dependencies:
+  - tqdm
+  - regex
+  - numpy
+  - functools

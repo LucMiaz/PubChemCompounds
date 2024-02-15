@@ -1,0 +1,17 @@
+Metadata-Version: 2.1
+Name: pubchem
+Version: 0.0.1
+Summary: Pubchem
+Author-email: Luc Miaz <luc@miaz.ch>
+Keywords: pubchem
+Classifier: License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)
+Classifier: Programming Language :: Python
+Classifier: Natural Language :: English
+Classifier: Development Status :: 4 - Beta
+Classifier: Programming Language :: Python :: 3
+Requires-Python: >=3.6
+Requires-Dist: requests
+Requires-Dist: numpy>=1.19.4
+Requires-Dist: regex
+Requires-Dist: datetime
+Requires-Dist: tqdm>=4.65.0
