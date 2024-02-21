@@ -1,6 +1,7 @@
 from typing import Union
 import json
 import regex as re
+import os
 from io import BytesIO
 from tqdm import tqdm
 import logging
@@ -66,7 +67,11 @@ def cas_to_pubchem(cas:Union[str,list], substance:bool):
     return_dict = {}
     failed = []
     for i,_cas in enumerate(fcas):
-        return_dict[_cas]=single_cas_to_pubchem(_cas,substance=substance)
+        x=single_cas_to_pubchem(_cas,substance=substance)
+        if x is None:
+            failed.append(_cas)
+        else:
+            return_dict[_cas] = x
     return return_dict, failed
     
 def get_chunks(l:list, n:int):
@@ -233,6 +238,36 @@ def get_cids_from_smiles(smiles):
     response = safe_request(url)
     data = json.loads(response)
     return data.get('IdentifierList',{}).get('CID',None)
+
+def cas_to_mols(cas:Union[list,str])->dict:
+    """
+    Returns a dictionary with Chem.MolSupplier for each cas given
+    """
+    cas_cids, failed = cas_to_pubchem(cas, substance = False)
+    cas_sids, failed = cas_to_pubchem(failed, substance = True)
+    cids_from_sids = get_cids_from_sids([y for x in cas_sids.values() for y in x])
+    reverse_lookup = {y:cas for cas,sids in cas_sids.items() for y in sids}
+    for sid,cids in cids_from_sids.items():
+        if cids is not None:
+            cas = reverse_lookup[sid]
+            cas_cids[cas] = cas_cids.setdefault(cas,[])+cids
+        else:
+            print(f"No cid for {sid}, {reverse_lookup[sid]}")
+    mols = {}
+    files = []
+    for i,(cas, cids) in enumerate(cas_cids.items()):
+        suppl, filename = get_mols_from_cids(cids, index = i)
+        mols[cas] = [x for x in suppl]
+        files.append(filename)
+    for filename in files:
+        try:
+            os.remove(filename)
+        except FileNotFoundError:
+            pass
+        except PermissionError:
+            pass
+    return mols
+        
 
 def cid_to_cas(cid, get_einecs = False) -> dict:
     """
