@@ -178,7 +178,6 @@ def get_cids_from_sids(sids:Union[list,int], max_query = 500):
     if sids is not None and not isinstance(sids,list):
         sids = [sids]
     sids_chunks = get_chunks(sids,max_query)
-    print("mols from cids")
     ret = {}
     for csids in sids_chunks:
         fsid = ','.join([str(x) for x in csids])
