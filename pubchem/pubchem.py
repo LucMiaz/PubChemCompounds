@@ -174,7 +174,7 @@ def get_mols_from_cas(cas:Union[list,str],substance = False)-> Chem.SDMolSupplie
     cids, success = cas_to_pubchem(cas,substance = substance)
     return get_mols_from_cids(cids.values())
 
-def get_cids_from_sids(sids:Union[list,int], max_query = 500):
+def get_cids_from_sids(sids:Union[list,int], max_query = 50):
     if sids is not None and not isinstance(sids,list):
         sids = [sids]
     sids_chunks = get_chunks(sids,max_query)
@@ -238,12 +238,26 @@ def get_cids_from_smiles(smiles):
     data = json.loads(response)
     return data.get('IdentifierList',{}).get('CID',None)
 
-def cas_to_mols(cas:Union[list,str])->dict:
+def cas_to_mols(cas:Union[list,str],cas_cids=None, cas_sids=None, save=None)->dict:
     """
+    :params cas_cids: if provided, will skip fetching cids
+    :params cas_sids: if provided, will skip fetching sids
+    :save: saving path (without extension)
+
     Returns a dictionary with Chem.MolSupplier for each cas given
     """
-    cas_cids, failed = cas_to_pubchem(cas, substance = False)
-    cas_sids, failed = cas_to_pubchem(failed, substance = True)
+    if cas_cids is None:
+        cas_cids, failed = cas_to_pubchem(cas, substance = False)
+        if save is not None:
+            with open(save+"_cas_cids.json","w") as f:
+                json.dump(cas_cids,f)
+    else:
+        failed = cas
+    if cas_sids is None:
+        cas_sids, failed = cas_to_pubchem(failed, substance = True)
+        if save is not None:
+            with open(save+"_cas_sids.json","w") as f:
+                json.dump(cas_sids,f)
     cids_from_sids = get_cids_from_sids([y for x in cas_sids.values() for y in x])
     reverse_lookup = {y:cas for cas,sids in cas_sids.items() for y in sids}
     for sid,cids in cids_from_sids.items():
