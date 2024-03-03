@@ -314,3 +314,42 @@ def cid_to_cas(cid, get_einecs = False) -> dict:
     else:
         return {c: (cas.get(c,[None]),einecs.get(c,[None]))
                     for c in set(cas.keys()).union(set(einecs.keys()))}.get(cid[0], None)
+
+
+def pubchem_pfas_tree(hnid = 5517102, max_tries = 2) -> list:
+    """
+    Fetch pfas_tree info for specified hnid. To get a list of hid
+    for PFAS use the function `getPcHidTree` from `lists.scripts.utility`.
+
+
+    :params hnid: `<int>` `<str>` with hnid number to process, default to OECD list
+    see list lists.data.PubChem_PFAS_Tree_Details.csv
+    """
+    id_type = 'cids'
+    output_format = 'json'
+    rest = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/classification/hnid/{str(hnid)}/{id_type}/{output_format}"
+    response = safe_request(rest)
+    try:
+        data = json.loads(response)
+    except:
+        return None
+    if data.get("IdentifierList") is None:
+        return None
+    return data.get("IdentifierList").get("CID")
+
+def download_cids_by_hnid(hnid:int, folder_path:str, force:bool = False):
+    """
+    Downloads the list of cids in hnid and saves it in path (last digit of hnid as subfolder)
+
+    :params hnid: hnid of the list
+    :params folder_path: the main folder where the json files will be saved
+    :params force: whether to force to download all lists (otherwise, lists for which a file already exists will be skiped)
+    """
+    filename = f"{folder_path}/hnid_{str(hnid).zfill(7)}.json"
+    if force is True or not os.path.exists(filename):
+        cids_all = pubchem_pfas_tree(hnid=hnid)
+        with open(filename, 'w') as f:
+            json.dump(cids_all,f)
+        return cids_all
+    with open(filename, 'r') as f:
+            return json.load(f)
