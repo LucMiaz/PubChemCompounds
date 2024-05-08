@@ -22,11 +22,11 @@ def format_cas(_cas:Union[str,list]):
         z = _cas[-1]
         yy = _cas[-3:-1]
         if len(xxxx)>8:
-            raise PubchemInputError(f'Error with formatting of cas: {_cas}')
+            logger.error(f'Error with formatting of cas: {_cas}')
         return f'{xxxx}-{yy}-{z}'
     elif isinstance(_cas,str):
         return _cas
-    raise PubchemInputError(f'Error with formatting of cas : {_cas}')
+    logger.error(f'Error with formatting of cas : {_cas}')
 
 def cas_to_cid(cas:Union[str,list]):
     """
