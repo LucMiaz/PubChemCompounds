@@ -66,7 +66,7 @@ def cas_to_pubchem(cas:Union[str,list], substance:bool):
     # Divide the process into 10 increments wait 1s between each
     return_dict = {}
     failed = []
-    for i,_cas in enumerate(fcas):
+    for i,_cas in tqdm(enumerate(fcas), total=len(fcas)):
         x=single_cas_to_pubchem(_cas,substance=substance)
         if x is None:
             failed.append(_cas)
@@ -270,7 +270,9 @@ def cas_to_mols(cas:Union[list,str],cas_cids=None, cas_sids=None, save=None)->di
     files = []
     for i,(cas, cids) in enumerate(cas_cids.items()):
         suppl, filename = get_mols_from_cids(cids, index = i)
-        mols[cas] = [x for x in suppl]
+        for m in suppl:
+            m.SetProp('CAS', cas)
+            mols.setdefault(cas,[]).append(m) 
         files.append(filename)
     for filename in files:
         try:
