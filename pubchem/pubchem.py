@@ -271,8 +271,9 @@ def cas_to_mols(cas:Union[list,str],cas_cids=None, cas_sids=None, save=None)->di
     for i,(cas, cids) in enumerate(cas_cids.items()):
         suppl, filename = get_mols_from_cids(cids, index = i)
         for m in suppl:
-            m.SetProp('CAS', cas)
-            mols.setdefault(cas,[]).append(m) 
+            if m is not None:
+                m.SetProp('CAS', cas)
+                mols.setdefault(cas,[]).append(m) 
         files.append(filename)
     for filename in files:
         try:
