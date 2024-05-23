@@ -227,6 +227,40 @@ def get_mols_from_cids(cids:Union[list,int], index = 0, max_query = 500, filenam
         print(f"Got error {e.__class__} for {index}")
         return [], ''
 
+def get_mols_from_sids(sids:Union[list,int], index = 0, max_query = 200, filename = None) -> Chem.SDMolSupplier:
+    """
+    Fetch SDF from PubChem for the cids provided
+
+    :params sids: `<list>` of int or `<int>`
+    :return: instance of rdkit.Chem  SDMolSupplier
+    """
+    if sids is not None and not isinstance(sids,list):
+        sids = [sids]
+    if filename is None:
+        filename = f"sdffrompubchem_temp_{index}.sdf"
+    sids_chunks = get_chunks(sids,max_query)
+    for ssids in sids_chunks:
+        fsid = ','.join([str(x) for x in ssids])
+        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/sid/{fsid}/SDF"
+        data = safe_request(url)
+        if data[0:6]=='<?xml':
+            logger.error('in get_mols_from_sids: received an error from server')
+            raise PubchemInputError('in get_mols_from_sids: received an error from server')
+        with open(filename,'ab') as f:
+                f.write(data)
+    try:
+        suppl = Chem.SDMolSupplier(filename,
+                                    sanitize = True,
+                                    removeHs = False)
+        # suppl = Chem.ForwardSDMolSupplier(stream,
+        #                             sanitize = False,
+        #                             removeHs = True)
+        return suppl, filename
+    except Exception as e:
+        logger.info(e)
+        print(f"Got error {e.__class__} for {index}")
+        return [], ''
+
 def cids_to_mol(cids, filename = None, max_query = 500):
     suppl, _ = get_mols_from_cids(cids, filename = filename, max_query = max_query)
     for i,mol in enumerate(suppl):
