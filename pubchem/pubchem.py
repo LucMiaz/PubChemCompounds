@@ -44,6 +44,20 @@ def cas_to_sid(cas:Union[str,list]):
     """
     return cas_to_pubchem(cas,substance=True)  
 
+def inchikey_to_pubchem(inchikey:str):
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/{inchikey}/cids/JSON"
+    response = safe_request(url)
+    try:
+        data = json.loads(response)
+    except json.JSONDecodeError:
+        logging.info(response)
+        print(f'Got error for {inchikey} in json response')
+        return None
+    if 'Fault' in data.keys():
+        logging.info(f'CAS {inchikey} got response {data.get("Fault","")}')
+        return None
+    return data.get('IdentifierList',{}).get('CID',None)
+
 def cas_to_pubchem(cas:Union[str,list], substance:bool):
     """
     wrapper for single_cas_to_pubchem
@@ -66,7 +80,14 @@ def cas_to_pubchem(cas:Union[str,list], substance:bool):
     # Divide the process into 10 increments wait 1s between each
     return_dict = {}
     failed = []
-    for i,_cas in tqdm(enumerate(fcas), total=len(fcas)):
+    if len(fcas)>1:
+        for i,_cas in tqdm(enumerate(fcas), total=len(fcas)):
+            x=single_cas_to_pubchem(_cas,substance=substance)
+            if x is None:
+                failed.append(_cas)
+            else:
+                return_dict[_cas] = x
+    else:
         x=single_cas_to_pubchem(_cas,substance=substance)
         if x is None:
             failed.append(_cas)
