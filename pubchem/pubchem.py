@@ -44,6 +44,20 @@ def cas_to_sid(cas:Union[str,list]):
     """
     return cas_to_pubchem(cas,substance=True)  
 
+def inchikey_to_pubchem(inchikey:str):
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/{inchikey}/cids/JSON"
+    response = safe_request(url)
+    try:
+        data = json.loads(response)
+    except json.JSONDecodeError:
+        logging.info(response)
+        print(f'Got error for {inchikey} in json response')
+        return None
+    if 'Fault' in data.keys():
+        logging.info(f'CAS {inchikey} got response {data.get("Fault","")}')
+        return None
+    return data.get('IdentifierList',{}).get('CID',None)
+
 def cas_to_pubchem(cas:Union[str,list], substance:bool):
     """
     wrapper for single_cas_to_pubchem
@@ -66,7 +80,14 @@ def cas_to_pubchem(cas:Union[str,list], substance:bool):
     # Divide the process into 10 increments wait 1s between each
     return_dict = {}
     failed = []
-    for i,_cas in tqdm(enumerate(fcas), total=len(fcas)):
+    if len(fcas)>1:
+        for i,_cas in tqdm(enumerate(fcas), total=len(fcas)):
+            x=single_cas_to_pubchem(_cas,substance=substance)
+            if x is None:
+                failed.append(_cas)
+            else:
+                return_dict[_cas] = x
+    else:
         x=single_cas_to_pubchem(_cas,substance=substance)
         if x is None:
             failed.append(_cas)
@@ -88,6 +109,10 @@ def get_chunks(l:list, n:int):
         return []
 
 def cids_to_cas_and_einecs(cids:list, max_query:int = 100):
+    """Legacy function, replaced by cids_to_cas_and_einecs_and_dtx"""
+    return cids_to_cas_and_einecs_and_dtx(cids, max_query)
+
+def cids_to_cas_and_einecs_and_dtx(cids:list, max_query:int = 100):
     """
     Searches for cas and einecs corresponding to cids
 
@@ -96,6 +121,7 @@ def cids_to_cas_and_einecs(cids:list, max_query:int = 100):
     """
     PATcas = r'^(\d){2,7}[-](\d){2}[-](\d)$'
     PATeinecs = r'^(\d){3}[-](\d){3}[-](\d)$'
+    PATdtx = r'((?<=DTXSID)\d{5,10})'
     cids_chunks = get_chunks(cids, max_query)
     cids_cas_einecs = {}
     for chunk in tqdm(cids_chunks):
@@ -103,12 +129,15 @@ def cids_to_cas_and_einecs(cids:list, max_query:int = 100):
         if synonyms is not None:
             for v in synonyms.get('InformationList',{}).get('Information',[]):
                 for candidate in v.get('Synonym',[]):
-                    cas = re.match(PATcas,candidate)
-                    einecs = re.match(PATeinecs,candidate)
-                    if cas is not None:
+                    cas = re.findall(PATcas,candidate)
+                    einecs = re.findall(PATeinecs,candidate)
+                    dtx = re.findall(PATdtx, candidate)
+                    if cas is not None and len(cas)>0:
                         cids_cas_einecs.setdefault(v['CID'],{})['CAS'] = cas[0]
-                    if einecs is not None:
+                    if einecs is not None and len(einecs)>0:
                         cids_cas_einecs.setdefault(v['CID'],{})['EINECS'] = einecs[0]
+                    if dtx is not None and len(dtx)>0:
+                        cids_cas_einecs.setdefault(v['CID'],{})['DTXSID'] = dtx[0]
     return cids_cas_einecs
 
 
