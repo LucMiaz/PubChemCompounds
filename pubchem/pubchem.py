@@ -88,11 +88,11 @@ def cas_to_pubchem(cas:Union[str,list], substance:bool):
             else:
                 return_dict[_cas] = x
     else:
-        x=single_cas_to_pubchem(_cas,substance=substance)
+        x=single_cas_to_pubchem(fcas,substance=substance)
         if x is None:
-            failed.append(_cas)
+            failed.append(fcas)
         else:
-            return_dict[_cas] = x
+            return_dict[fcas] = x
     return return_dict, failed
     
 def get_chunks(l:list, n:int):
@@ -140,23 +140,18 @@ def cids_to_cas_and_einecs_and_dtx(cids:list, max_query:int = 100):
                         cids_cas_einecs.setdefault(v['CID'],{})['DTXSID'] = dtx[0]
     return cids_cas_einecs
 
+def single_cas_to_pubchem(cas, substance:bool=False):
+    """Legacy method"""
+    return single_synonym_to_pubchem(cas, substance)
 
-def single_cas_to_pubchem(cas,substance:bool=False):
-    """Use PubChem REST to convert CAS to CID
+def single_synonym_to_pubchem(cas,substance:bool=False):
+    """Use PubChem REST to convert CAS or other synonyms to CID
 
-    :params cas: `<str>` or `<list>` of length 3 with cas number to convert
+    :params cas: `<str>` or `<list>`
     :params substance: `<bool>` True if substance (sid), False if compound (cid)
 
     :return: cid or sid
     """
-    if isinstance(cas, list) and len(cas)==3 and len(str(cas[0]))<8\
-          and len(str(cas[1]))==2 and len(str(cas[2]))==1:
-        cas = f"{cas[0]}-{cas[1]}-{cas[2]}"
-    elif isinstance(cas,str):
-        pass
-    else:
-        logger.info(f"cas_to_cid: {cas} has not a valid format, returning None")
-        return None
     if substance is True:
         url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/name/{cas}/sids/JSON"
     else:
@@ -172,9 +167,9 @@ def single_cas_to_pubchem(cas,substance:bool=False):
         logging.info(f'CAS {cas} got response {data.get("Fault","")}')
         return None
     if substance is True:
-        return data.get('IdentifierList',{}).get('SID',None)
+        return data.get('IdentifierList',{}).get('SID',[])
     else:
-        return data.get('IdentifierList',{}).get('CID',None)
+        return data.get('IdentifierList',{}).get('CID',[])
 
 
 
