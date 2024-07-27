@@ -145,7 +145,7 @@ def single_cas_to_pubchem(cas, substance:bool=False):
     return single_synonym_to_pubchem(cas, substance)
 
 def single_synonym_to_pubchem(cas,substance:bool=False):
-    """Use PubChem REST to convert CAS or other synonyms to CID
+    """Use PubChem REST to convert CAS or other synonyms to CID 
 
     :params cas: `<str>` or `<list>`
     :params substance: `<bool>` True if substance (sid), False if compound (cid)
