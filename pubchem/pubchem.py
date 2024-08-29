@@ -170,7 +170,28 @@ def single_synonym_to_pubchem(cas,substance:bool=False):
         return data.get('IdentifierList',{}).get('SID',[])
     else:
         return data.get('IdentifierList',{}).get('CID',[])
+    
 
+def SMILES_to_pubchem(smiles):
+    """Use PubChem REST to convert CAS or other synonyms to CID 
+
+    :params cas: `<str>` or `<list>`
+    :params substance: `<bool>` True if substance (sid), False if compound (cid)
+
+    :return: cid or sid
+    """
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/cids/JSON"
+    response = safe_request(url)
+    try:
+        data = json.loads(response)
+    except json.JSONDecodeError:
+        logging.info(response)
+        print(f'Got error for {smiles} in json response')
+        return None
+    if 'Fault' in data.keys():
+        logging.info(f'CAS {smiles} got response {data.get("Fault","")}')
+        return None
+    return data.get('IdentifierList',{}).get('CID',[])
 
 
 def get_from_cids(cids, target= None, format = "JSON"):
@@ -178,7 +199,7 @@ def get_from_cids(cids, target= None, format = "JSON"):
     Fetch data from PubChem for the cids provided
 
     :params cids: `<list>` of int or `<int>`
-    :params target: `<str>`, e.g. synonyms
+    :params target: `<str>`, e.g. synonyms or e.g. property/InChI
     """
     if cids is not None and not isinstance(cids,list):
         cids = [cids]
