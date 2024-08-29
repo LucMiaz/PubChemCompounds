@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pubchem"
-version = "0.0.3"
+version = "0.0.4"
 description = "Pubchem"
 #readme = "README.md"
 authors = [{ name = "Luc Miaz", email = "luc@miaz.ch" }]

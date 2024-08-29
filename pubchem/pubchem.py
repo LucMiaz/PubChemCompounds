@@ -428,3 +428,30 @@ def download_cids_by_hnid(hnid:int, folder_path:str, force:bool = False):
         return cids_all
     with open(filename, 'r') as f:
             return json.load(f)
+
+def get_HSDB(cids:Union[list,int]):
+    """
+    returns HSDB id from list of cids    
+    """
+    data = {}
+    PAT = r"(?<=HSDB\s)(\d*)"
+    def find_entry(cid):
+        info = get_from_cids(cid,'synonyms')
+        for info in data.get("InformationList", {}).get("Information", []):
+            icid = info.get('CID',None)
+            if icid is not None:
+                synonyms = info.get('Synonym',[])
+                for synonym in synonyms:
+                    for match in re.finditer(PAT,synonym):
+                        return int(match.group())
+        return None
+    if isinstance(cids,int):
+        cids = [cids]
+    elif not isinstance(cids,list):
+        raise ValueError("cids should be an integer of a list of integers")
+    for cid in cids:
+        data[cid] = find_entry(cid)
+    if len(cids)==1:
+        return data[cids[0]]
+    return data
+        
