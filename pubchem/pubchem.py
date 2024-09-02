@@ -450,7 +450,7 @@ def download_cids_by_hnid(hnid:int, folder_path:str, force:bool = False):
     with open(filename, 'r') as f:
             return json.load(f)
 
-def get_HSDB(cids:Union[list,int]):
+def get_HSDB(cids:Union[list,int], chunk_size = 200):
     """
     returns HSDB id from list of cids    
     """
@@ -465,7 +465,14 @@ def get_HSDB(cids:Union[list,int]):
         cids = [cids]
     elif not isinstance(cids,list):
         raise ValueError("cids should be an integer of a list of integers")
-    info = get_from_cids(cids,target='synonyms').get("InformationList",{}).get('Information',{})
+    info =[]
+    for chunk in get_chunks(cids,chunk_size):
+        ret = get_from_cids(chunk,target='synonyms').get("InformationList",{}).get('Information',{})
+        if ret is not None:
+            try:
+                info+=ret
+            except Exception as e:
+                print(f"Exception for {chunk,}\n{e}")
     for d in info:
         cid = d['CID']
         data[cid] = find_entry(d['Synonym'])
