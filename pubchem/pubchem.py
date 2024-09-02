@@ -475,7 +475,10 @@ def get_HSDB(cids:Union[list,int], chunk_size = 200):
                 print(f"Exception for {chunk,}\n{e}")
     for d in info:
         cid = d['CID']
-        data[cid] = find_entry(d['Synonym'])
+        try:
+            data[cid] = find_entry(d['Synonym'])
+        except KeyError:
+            data[cid] = None
     if len(cids)==1:
         return data[cids[0]]
     return data
