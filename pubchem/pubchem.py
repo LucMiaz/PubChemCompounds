@@ -67,32 +67,25 @@ def cas_to_pubchem(cas:Union[str,list], substance:bool):
     """
     fcas = []
     if isinstance(cas, list) and not(len(cas)==3 and len(str(cas[0]))<8\
-          and len(str(cas[1]))==2 and len(str(cas[2]))==1):
+            and len(str(cas[1]))==2 and len(str(cas[2]))==1):
         #there are multiple cas
         fcas = [format_cas(c) for c in cas]
     elif isinstance(cas,str):
         fcas = [cas]
     elif isinstance(cas,list) and len(cas)==3 and len(str(cas[0]))<8\
-          and len(str(cas[1]))==2 and len(str(cas[2]))==1:
+            and len(str(cas[1]))==2 and len(str(cas[2]))==1:
         fcas =[format_cas(cas)]
     elif cas is None:
         return {}, []
     # Divide the process into 10 increments wait 1s between each
     return_dict = {}
     failed = []
-    if len(fcas)>1:
-        for i,_cas in tqdm(enumerate(fcas), total=len(fcas)):
-            x=single_cas_to_pubchem(_cas,substance=substance)
-            if x is None:
-                failed.append(_cas)
-            else:
-                return_dict[_cas] = x
-    else:
-        x=single_cas_to_pubchem(fcas,substance=substance)
+    for _cas in fcas:
+        x=single_cas_to_pubchem(_cas,substance=substance)
         if x is None:
-            failed.append(fcas)
+            failed.append(_cas)
         else:
-            return_dict[fcas] = x
+            return_dict[_cas] = x
     return return_dict, failed
     
 def get_chunks(l:list, n:int):
