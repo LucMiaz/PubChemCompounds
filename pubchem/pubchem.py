@@ -100,6 +100,9 @@ def get_chunks(l:list, n:int):
     except TypeError as e:
         logging.info(e)
         return []
+    except KeyError as e:
+        logging.info(e)
+        return []
 
 def cids_to_cas_and_einecs(cids:list, max_query:int = 100):
     """Legacy function, replaced by cids_to_cas_and_einecs_and_dtx"""
