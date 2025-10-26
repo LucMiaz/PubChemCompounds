@@ -80,7 +80,7 @@ def cas_to_pubchem(cas:Union[str,list], substance:bool):
     # Divide the process into 10 increments wait 1s between each
     return_dict = {}
     failed = []
-    for _cas in fcas:
+    for _cas in tqdm(fcas, total =len(fcas)):
         x=single_cas_to_pubchem(_cas,substance=substance)
         if x is None:
             failed.append(_cas)
