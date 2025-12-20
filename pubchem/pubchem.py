@@ -5,6 +5,7 @@ import os
 from io import BytesIO
 from tqdm import tqdm
 import logging
+import pandas as pd
 from rdkit import Chem
 logger = logging.getLogger(__name__)
 from .throttle import safe_request
@@ -213,7 +214,7 @@ def single_synonym_to_pubchem(cas,substance:bool=False):
     try:
         data = json.loads(response)
     except json.JSONDecodeError:
-        logging.inforesponse)
+        logging.info(response)
         print(f'Got error for {cas} in json response')
         return None
     if 'Fault' in data.keys():
@@ -507,4 +508,67 @@ def get_HSDB(cids:Union[list,int]):
     if len(cids)==1:
         return data[cids[0]]
     return data
-        
+    
+# Function to process CAS numbers and get SMILES
+def cas_to_smiles(cas_list, unique=True, join_smiles = True):
+    """
+    Convert CAS numbers (or other synonyms, e.g DTXSID) to SMILES, handling multiple molecules per CAS
+    and deduplicating by InChI key (if unique =True, else returns list)
+    if join_smiles is True, multiple molecules will be converted to SMILES and joined using . (dot).
+    """
+    all_smiles = []
+    processed_cas = {}
+    failed_cas = []
+    
+    for cas in cas_list:
+        if pd.isna(cas) or cas == '':
+            continue
+            
+        try:
+            print(f"Processing CAS: {cas}")
+            mols_dict = cas_to_mols(cas)
+            
+            if cas in mols_dict:
+                mol_list = mols_dict[cas]
+                cas_smiles = []
+                if unique is True:
+                    seen_inchikeys = set()
+                    
+                    for mol in mol_list:
+                        if mol is not None:
+                            try:
+                                # Generate InChI key for deduplication
+                                inchi_key = Chem.MolToInchiKey(mol)
+                                
+                                if inchi_key not in seen_inchikeys:
+                                    smiles = Chem.MolToSmiles(mol)
+                                    cas_smiles.append(smiles)
+                                    seen_inchikeys.add(inchi_key)
+                            except Exception as e:
+                                print(f"  Warning: Could not process molecule for CAS {cas}: {e}")
+                else:
+                    cas_smiles = [Chem.MolToSmiles(m) for m in mol_list]
+                if cas_smiles:
+                    # Combine multiple SMILES with dots
+                    if join_smiles is True:
+                        combined_smiles = '.'.join(cas_smiles)
+                        processed_cas[cas] = combined_smiles
+                        all_smiles.append(combined_smiles)
+                    else:
+                        processed_cas[cas] = cas_smiles
+                    print(f"  Success: {len(cas_smiles)} unique molecules found")
+                else:
+                    failed_cas.append(cas)
+                    processed_cas[cas] = None
+                    print(f"  Failed: No valid molecules found")
+            else:
+                failed_cas.append(cas)
+                processed_cas[cas] = None
+                print(f"  Failed: CAS not found in PubChem")
+                
+        except Exception as e:
+            print(f"  Error processing CAS {cas}: {e}")
+            failed_cas.append(cas)
+            processed_cas[cas] = None
+    
+    return processed_cas, failed_cas
