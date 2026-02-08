@@ -358,7 +358,28 @@ def cas_to_mols(cas:Union[list,str],cas_cids=None, cas_sids=None, save=None)->di
         except PermissionError:
             pass
     return mols
-        
+
+def cas_to_inchi(cas:Union[list,str]]):
+    """
+    Use PubChem REST to convert CAS to InChI
+
+    :params cas: `<str>` or `<list>` of length 3 with cas number to convert or list of cas
+    :return: a dictionary of lists with given cas as entries, if only one cas was given
+            then the function returns only a list with corresponding inchi as list  
+    """
+    cids, failed = cas_to_pubchem(cas, substance = False)
+    inchis = {}
+    for cas, cids in cids.items():
+        for cid in cids:
+            data = get_from_cids(cid, target = 'property/InChI')
+            if data is not None:
+                for info in data.get("PropertyTable",{}).get("Properties",[]):
+                    inchis.setdefault(cas,[]).append(info.get('InChI',None))
+    if isinstance(cas,str) or (isinstance(cas,list) and len(cas)==3 and len(str(cas[0]))<8\
+            and len(str(cas[1]))==2 and len(str(cas[2]))==1):
+        return inchis.get(cas,[None])
+    else:
+        return inchis        
 
 def cid_to_cas(cid, get_einecs = False) -> dict:
     """

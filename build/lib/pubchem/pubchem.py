@@ -22,11 +22,11 @@ def format_cas(_cas:Union[str,list]):
         z = _cas[-1]
         yy = _cas[-3:-1]
         if len(xxxx)>8:
-            raise PubchemInputError(f'Error with formatting of cas: {_cas}')
+            logger.error(f'Error with formatting of cas: {_cas}')
         return f'{xxxx}-{yy}-{z}'
     elif isinstance(_cas,str):
         return _cas
-    raise PubchemInputError(f'Error with formatting of cas : {_cas}')
+    logger.error(f'Error with formatting of cas : {_cas}')
 
 def cas_to_cid(cas:Union[str,list]):
     """
@@ -44,6 +44,20 @@ def cas_to_sid(cas:Union[str,list]):
     """
     return cas_to_pubchem(cas,substance=True)  
 
+def inchikey_to_pubchem(inchikey:str):
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/{inchikey}/cids/JSON"
+    response = safe_request(url)
+    try:
+        data = json.loads(response)
+    except json.JSONDecodeError:
+        logging.info(response)
+        print(f'Got error for {inchikey} in json response')
+        return None
+    if 'Fault' in data.keys():
+        logging.info(f'CAS {inchikey} got response {data.get("Fault","")}')
+        return None
+    return data.get('IdentifierList',{}).get('CID',None)
+
 def cas_to_pubchem(cas:Union[str,list], substance:bool):
     """
     wrapper for single_cas_to_pubchem
@@ -53,20 +67,20 @@ def cas_to_pubchem(cas:Union[str,list], substance:bool):
     """
     fcas = []
     if isinstance(cas, list) and not(len(cas)==3 and len(str(cas[0]))<8\
-          and len(str(cas[1]))==2 and len(str(cas[2]))==1):
+            and len(str(cas[1]))==2 and len(str(cas[2]))==1):
         #there are multiple cas
         fcas = [format_cas(c) for c in cas]
     elif isinstance(cas,str):
         fcas = [cas]
     elif isinstance(cas,list) and len(cas)==3 and len(str(cas[0]))<8\
-          and len(str(cas[1]))==2 and len(str(cas[2]))==1:
+            and len(str(cas[1]))==2 and len(str(cas[2]))==1:
         fcas =[format_cas(cas)]
     elif cas is None:
         return {}, []
     # Divide the process into 10 increments wait 1s between each
     return_dict = {}
     failed = []
-    for i,_cas in enumerate(fcas):
+    for _cas in tqdm(fcas, total =len(fcas)):
         x=single_cas_to_pubchem(_cas,substance=substance)
         if x is None:
             failed.append(_cas)
@@ -86,8 +100,15 @@ def get_chunks(l:list, n:int):
     except TypeError as e:
         logging.info(e)
         return []
+    except KeyError as e:
+        logging.info(e)
+        return []
 
 def cids_to_cas_and_einecs(cids:list, max_query:int = 100):
+    """Legacy function, replaced by cids_to_cas_and_einecs_and_dtx"""
+    return cids_to_cas_and_einecs_and_dtx(cids, max_query)
+
+def cids_to_cas_and_einecs_and_dtx(cids:list, max_query:int = 100):
     """
     Searches for cas and einecs corresponding to cids
 
@@ -96,6 +117,7 @@ def cids_to_cas_and_einecs(cids:list, max_query:int = 100):
     """
     PATcas = r'^(\d){2,7}[-](\d){2}[-](\d)$'
     PATeinecs = r'^(\d){3}[-](\d){3}[-](\d)$'
+    PATdtx = r'((?<=DTXSID)\d{5,10})'
     cids_chunks = get_chunks(cids, max_query)
     cids_cas_einecs = {}
     for chunk in tqdm(cids_chunks):
@@ -103,31 +125,29 @@ def cids_to_cas_and_einecs(cids:list, max_query:int = 100):
         if synonyms is not None:
             for v in synonyms.get('InformationList',{}).get('Information',[]):
                 for candidate in v.get('Synonym',[]):
-                    cas = re.match(PATcas,candidate)
-                    einecs = re.match(PATeinecs,candidate)
-                    if cas is not None:
+                    cas = re.findall(PATcas,candidate)
+                    einecs = re.findall(PATeinecs,candidate)
+                    dtx = re.findall(PATdtx, candidate)
+                    if cas is not None and len(cas)>0:
                         cids_cas_einecs.setdefault(v['CID'],{})['CAS'] = cas[0]
-                    if einecs is not None:
+                    if einecs is not None and len(einecs)>0:
                         cids_cas_einecs.setdefault(v['CID'],{})['EINECS'] = einecs[0]
+                    if dtx is not None and len(dtx)>0:
+                        cids_cas_einecs.setdefault(v['CID'],{})['DTXSID'] = dtx[0]
     return cids_cas_einecs
 
+def single_cas_to_pubchem(cas, substance:bool=False):
+    """Legacy method"""
+    return single_synonym_to_pubchem(cas, substance)
 
-def single_cas_to_pubchem(cas,substance:bool=False):
-    """Use PubChem REST to convert CAS to CID
+def single_synonym_to_pubchem(cas,substance:bool=False):
+    """Use PubChem REST to convert CAS or other synonyms to CID 
 
-    :params cas: `<str>` or `<list>` of length 3 with cas number to convert
+    :params cas: `<str>` or `<list>`
     :params substance: `<bool>` True if substance (sid), False if compound (cid)
 
     :return: cid or sid
     """
-    if isinstance(cas, list) and len(cas)==3 and len(str(cas[0]))<8\
-          and len(str(cas[1]))==2 and len(str(cas[2]))==1:
-        cas = f"{cas[0]}-{cas[1]}-{cas[2]}"
-    elif isinstance(cas,str):
-        pass
-    else:
-        logger.info(f"cas_to_cid: {cas} has not a valid format, returning None")
-        return None
     if substance is True:
         url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/name/{cas}/sids/JSON"
     else:
@@ -143,10 +163,31 @@ def single_cas_to_pubchem(cas,substance:bool=False):
         logging.info(f'CAS {cas} got response {data.get("Fault","")}')
         return None
     if substance is True:
-        return data.get('IdentifierList',{}).get('SID',None)
+        return data.get('IdentifierList',{}).get('SID',[])
     else:
-        return data.get('IdentifierList',{}).get('CID',None)
+        return data.get('IdentifierList',{}).get('CID',[])
+    
 
+def SMILES_to_pubchem(smiles):
+    """Use PubChem REST to convert CAS or other synonyms to CID 
+
+    :params cas: `<str>` or `<list>`
+    :params substance: `<bool>` True if substance (sid), False if compound (cid)
+
+    :return: cid or sid
+    """
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/cids/JSON"
+    response = safe_request(url)
+    try:
+        data = json.loads(response)
+    except json.JSONDecodeError:
+        logging.info(response)
+        print(f'Got error for {smiles} in json response')
+        return None
+    if 'Fault' in data.keys():
+        logging.info(f'CAS {smiles} got response {data.get("Fault","")}')
+        return None
+    return data.get('IdentifierList',{}).get('CID',[])
 
 
 def get_from_cids(cids, target= None, format = "JSON"):
@@ -154,7 +195,7 @@ def get_from_cids(cids, target= None, format = "JSON"):
     Fetch data from PubChem for the cids provided
 
     :params cids: `<list>` of int or `<int>`
-    :params target: `<str>`, e.g. synonyms
+    :params target: `<str>`, e.g. synonyms or e.g. property/InChI
     """
     if cids is not None and not isinstance(cids,list):
         cids = [cids]
@@ -227,6 +268,40 @@ def get_mols_from_cids(cids:Union[list,int], index = 0, max_query = 500, filenam
         print(f"Got error {e.__class__} for {index}")
         return [], ''
 
+def get_mols_from_sids(sids:Union[list,int], index = 0, max_query = 200, filename = None) -> Chem.SDMolSupplier:
+    """
+    Fetch SDF from PubChem for the cids provided
+
+    :params sids: `<list>` of int or `<int>`
+    :return: instance of rdkit.Chem  SDMolSupplier
+    """
+    if sids is not None and not isinstance(sids,list):
+        sids = [sids]
+    if filename is None:
+        filename = f"sdffrompubchem_temp_{index}.sdf"
+    sids_chunks = get_chunks(sids,max_query)
+    for ssids in sids_chunks:
+        fsid = ','.join([str(x) for x in ssids])
+        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/sid/{fsid}/SDF"
+        data = safe_request(url)
+        if data[0:6]=='<?xml':
+            logger.error('in get_mols_from_sids: received an error from server')
+            raise PubchemInputError('in get_mols_from_sids: received an error from server')
+        with open(filename,'ab') as f:
+                f.write(data)
+    try:
+        suppl = Chem.SDMolSupplier(filename,
+                                    sanitize = True,
+                                    removeHs = False)
+        # suppl = Chem.ForwardSDMolSupplier(stream,
+        #                             sanitize = False,
+        #                             removeHs = True)
+        return suppl, filename
+    except Exception as e:
+        logger.info(e)
+        print(f"Got error {e.__class__} for {index}")
+        return [], ''
+
 def cids_to_mol(cids, filename = None, max_query = 500):
     suppl, _ = get_mols_from_cids(cids, filename = filename, max_query = max_query)
     for i,mol in enumerate(suppl):
@@ -270,7 +345,10 @@ def cas_to_mols(cas:Union[list,str],cas_cids=None, cas_sids=None, save=None)->di
     files = []
     for i,(cas, cids) in enumerate(cas_cids.items()):
         suppl, filename = get_mols_from_cids(cids, index = i)
-        mols[cas] = [x for x in suppl]
+        for m in suppl:
+            if m is not None:
+                m.SetProp('CAS', cas)
+                mols.setdefault(cas,[]).append(m) 
         files.append(filename)
     for filename in files:
         try:
@@ -367,3 +445,37 @@ def download_cids_by_hnid(hnid:int, folder_path:str, force:bool = False):
         return cids_all
     with open(filename, 'r') as f:
             return json.load(f)
+
+def get_HSDB(cids:Union[list,int], chunk_size = 200):
+    """
+    returns HSDB id from list of cids    
+    """
+    data = {}
+    PAT = r"(?<=HSDB\s)(\d*)"
+    def find_entry(synonyms):
+        for synonym in synonyms:
+            for match in re.finditer(PAT,synonym):
+                return int(match.group())
+        return None
+    if isinstance(cids,int):
+        cids = [cids]
+    elif not isinstance(cids,list):
+        raise ValueError("cids should be an integer of a list of integers")
+    info =[]
+    for chunk in get_chunks(cids,chunk_size):
+        ret = get_from_cids(chunk,target='synonyms').get("InformationList",{}).get('Information',{})
+        if ret is not None:
+            try:
+                info+=ret
+            except Exception as e:
+                print(f"Exception for {chunk,}\n{e}")
+    for d in info:
+        cid = d['CID']
+        try:
+            data[cid] = find_entry(d['Synonym'])
+        except KeyError:
+            data[cid] = None
+    if len(cids)==1:
+        return data[cids[0]]
+    return data
+        
