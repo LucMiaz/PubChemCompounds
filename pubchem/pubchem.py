@@ -1,574 +1,869 @@
+"""
+PubChem REST API wrapper utilities.
+
+Provides functions to query the PubChem PUG REST API for compound and
+substance information: CID/SID lookups by CAS, InChIKey or SMILES,
+batch property fetching, SDF/mol retrieval, and CAS/EINECS extraction.
+"""
+
+from __future__ import annotations
+
 from typing import Union
 import json
 import regex as re
 import os
-from io import BytesIO
 from tqdm import tqdm
 import logging
-import pandas as pd
 from rdkit import Chem
-logger = logging.getLogger(__name__)
+import pandas as pd
 from .throttle import safe_request
-STATUS_403 = 0
-class PubchemInputError(AttributeError):
-    pass
 
-def format_cas(_cas:Union[str,list]):
-    """Ensure a cas is formatted as 'xxxxxxxx-yy-z"""
-    if isinstance(_cas, list) and len(_cas)==3 and len(str(_cas[0]))<8\
-        and len(str(_cas[1]))==2 and len(str(_cas[2]))==1:
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "PubchemInputError",
+    "format_cas",
+    "cas_to_cid",
+    "cas_to_sid",
+    "cas_to_pubchem",
+    "inchikey_to_pubchem",
+    "cas_to_inchi",
+    "cids_to_cas_and_einecs",
+    "cids_to_cas_and_einecs_and_dtx",
+    "single_synonym_to_pubchem",
+    "SMILES_to_pubchem",
+    "get_from_cids",
+    "get_chunks",
+    "get_mols_from_cas",
+    "get_cids_from_sids",
+    "get_mols_from_cids",
+    "get_mols_from_sids",
+    "cids_to_mol",
+    "get_cids_from_smiles",
+    "cas_to_mols",
+]
+
+
+class PubchemInputError(AttributeError):
+    """Raised when PubChem returns an error response for the given input."""
+
+
+def format_cas(_cas: Union[str, list]) -> str:
+    """Ensure a CAS number is formatted as ``XXXXXXXX-YY-Z``.
+
+    Args:
+        _cas: CAS number as a string (with or without dashes) or a
+            three-element list ``[XXXXXXXX, YY, Z]``.
+
+    Returns:
+        Dash-separated CAS string, e.g. ``"7732-18-5"``.
+    """
+    if (
+        isinstance(_cas, list)
+        and len(_cas) == 3
+        and len(str(_cas[0])) < 8
+        and len(str(_cas[1])) == 2
+        and len(str(_cas[2])) == 1
+    ):
         return f"{_cas[0]}-{_cas[1]}-{_cas[2]}"
-    elif isinstance(_cas,str) and '-' not in _cas:
+    if isinstance(_cas, str) and "-" not in _cas:
         xxxx = _cas[:-3]
         z = _cas[-1]
         yy = _cas[-3:-1]
-        if len(xxxx)>8:
-            logger.error(f'Error with formatting of cas: {_cas}')
-        return f'{xxxx}-{yy}-{z}'
-    elif isinstance(_cas,str):
+        if len(xxxx) > 8:
+            logger.error("Error with formatting of cas: %s", _cas)
+        return f"{xxxx}-{yy}-{z}"
+    if isinstance(_cas, str):
         return _cas
-    logger.error(f'Error with formatting of cas : {_cas}')
+    logger.error("Error with formatting of cas : %s", _cas)
+    return str(_cas)
 
-def cas_to_cid(cas:Union[str,list]):
+def cas_to_cid(cas: Union[str, list]) -> tuple[dict, list]:
+    """Convert CAS number(s) to PubChem Compound IDs (CIDs).
+
+    Convenience wrapper around :func:`cas_to_pubchem` with
+    ``substance=False``.
+
+    Args:
+        cas: Single CAS string or a list of CAS strings.
+
+    Returns:
+        A tuple ``(mapping, failed)`` where *mapping* is a ``dict``
+        keyed by CAS with lists of CIDs as values, and *failed* is a
+        list of CAS numbers that could not be resolved.
     """
-    wrapper for cas_to_pubchem
+    return cas_to_pubchem(cas, substance=False)
 
-    :params cas: `<str>` or `<list>` of length 3 with cas number to convert or list of cas
+
+def cas_to_sid(cas: Union[str, list]) -> tuple[dict, list]:
+    """Convert CAS number(s) to PubChem Substance IDs (SIDs).
+
+    Convenience wrapper around :func:`cas_to_pubchem` with
+    ``substance=True``.
+
+    Args:
+        cas: Single CAS string or a list of CAS strings.
+
+    Returns:
+        A tuple ``(mapping, failed)`` where *mapping* is a ``dict``
+        keyed by CAS with lists of SIDs as values, and *failed* is a
+        list of CAS numbers that could not be resolved.
     """
-    return cas_to_pubchem(cas,substance=False)
+    return cas_to_pubchem(cas, substance=True)
 
-def cas_to_sid(cas:Union[str,list]):
+
+def inchikey_to_pubchem(inchikey: str) -> Union[list, None]:
+    """Convert an InChIKey to a list of PubChem CIDs.
+
+    Args:
+        inchikey: Standard 27-character InChIKey string.
+
+    Returns:
+        List of CIDs, or ``None`` if not found / on error.
     """
-    wrapper for cas_to_pubchem
-
-    :params cas: `<str>` or `<list>` of length 3 with cas number to convert or list of cas
-    """
-    return cas_to_pubchem(cas,substance=True)  
-
-def inchikey_to_pubchem(inchikey:str):
-    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/{inchikey}/cids/JSON"
+    url = (
+        f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/"
+        f"{inchikey}/cids/JSON"
+    )
     response = safe_request(url)
     try:
         data = json.loads(response)
     except json.JSONDecodeError:
-        logging.info(response)
-        print(f'Got error for {inchikey} in json response')
+        logger.info("JSON decode error for inchikey %s: %s", inchikey, response)
         return None
-    if 'Fault' in data.keys():
-        logging.info(f'CAS {inchikey} got response {data.get("Fault","")}')
+    if "Fault" in data:
+        logger.info("InChIKey %s got fault: %s", inchikey, data.get("Fault", ""))
         return None
-    return data.get('IdentifierList',{}).get('CID',None)
+    return data.get("IdentifierList", {}).get("CID", None)
 
-def cas_to_pubchem(cas:Union[str,list], substance:bool):
-    """
-    wrapper for single_synonym_to_pubchem
 
-    :params cas: `<str>` or `<list>` of length 3 with cas number to convert or list of cas
-    :params substance: `<bool>` True if substance (sid), False if compound (cid)
+def cas_to_pubchem(cas: Union[str, list], substance: bool) -> tuple[dict, list]:
+    """Look up PubChem IDs for one or more CAS numbers (or other synonyms).
+
+    Args:
+        cas: Single CAS string or a list of CAS strings.
+        substance: If ``True``, return Substance IDs (SIDs); if
+            ``False``, return Compound IDs (CIDs).
+
+    Returns:
+        A tuple ``(mapping, failed)`` where *mapping* maps each CAS
+        string to its list of IDs, and *failed* contains CAS strings
+        that returned no result.
     """
-    fcas = []
-    # if isinstance(cas, list) and not(len(cas)==3 and len(str(cas[0]))<8\
-    #       and len(str(cas[1]))==2 and len(str(cas[2]))==1):
-    #     #there are multiple cas
-    #     fcas = [format_cas(c) for c in cas]
-    # elif 
-    if isinstance(cas,str):
-        fcas = [cas]
-    elif cas is None:
+    if cas is None:
         return {}, []
+    if isinstance(cas, str):
+        fcas = [cas]
     else:
-        fcas = cas
-    # Divide the process into 10 increments wait 1s between each
-    return_dict = {}
-    failed = []
-    for i,_cas in tqdm(enumerate(fcas), total=len(fcas)):
-        x=single_synonym_to_pubchem(_cas,substance=substance)
-        if x is None:
-            failed.append(_cas)
-        else:
-            return_dict[_cas] = x
-    return return_dict, failed
-    
-def get_chunks(l:list, n:int):
-    """
-    Divide list into chunks of maximal size n
+        fcas = list(cas)
 
-    :params l: list
-    :params n: max size of each chunk
+    return_dict: dict = {}
+    failed: list = []
+    if len(fcas)>1:
+        for _cas in tqdm(fcas, total=len(fcas)):
+            x = single_synonym_to_pubchem(_cas, substance=substance)
+            if x is None:
+                failed.append(_cas)
+            else:
+                return_dict[_cas] = x
+    else:
+        x = single_synonym_to_pubchem(fcas[0], substance=substance)
+        if x is None:
+            failed.append(fcas[0])
+        else:
+            return_dict[fcas[0]] = x
+    return return_dict, failed
+
+def get_chunks(l: list, n: int) -> list:
+    """Divide a list into chunks of at most *n* elements.
+
+    Args:
+        l: Input list to split.
+        n: Maximum chunk size.
+
+    Returns:
+        List of sub-lists, each of length at most *n*.
     """
     try:
-        return [l[i:i+n] for i in range(0, len(l), max(1,n))]
+        return [l[i : i + n] for i in range(0, len(l), max(1, n))]
     except TypeError as e:
-        logging.info(e)
+        logger.info("get_chunks error: %s", e)
         return []
 
-def cas_to_inchi(cas:Union[str,list], max_query:int = 100):
-    """
-    Convert CAS number(s) to InChI string(s)
 
-    :params cas: `<str>` or `<list>` of CAS numbers to convert
-    :params max_query: chunk size for batch queries
-    :return: dictionary mapping CAS to SMILES, and list of failed CAS
+def cas_to_inchi(cas: Union[str, list], max_query: int = 100) -> tuple[dict, list]:
+    """Convert CAS number(s) to InChI string(s) via PubChem.
+
+    Resolves CAS numbers to CIDs first, then fetches the InChI for
+    each CID in batches.
+
+    Args:
+        cas: Single CAS string or a list of CAS strings.
+        max_query: Maximum number of CIDs per PubChem batch request.
+
+    Returns:
+        A tuple ``(cas_inchi, failed)`` where *cas_inchi* maps each
+        resolved CAS to its InChI string (or a list of strings if
+        multiple CIDs matched), and *failed* lists unresolved CAS
+        numbers.
     """
-    # First try to get CIDs directly from CAS
     cas_cids, failed = cas_to_pubchem(cas, substance=False)
-    
-    # the next part is not necessary anymore since CIDs are fetched directly from CAS even for substances
-    # # For failed CAS, try to get SIDs
-    # if failed:
-    #     cas_sids, still_failed = cas_to_pubchem(failed, substance=True)
-        
-    #     # Convert SIDs to CIDs
-    #     if cas_sids:
-    #         all_sids = [sid for sids in cas_sids.values() for sid in sids]
-    #         sids_to_cids_map = get_cids_from_sids(all_sids)
-            
-    #         # Map back to CAS
-    #         for cas_num, sids in cas_sids.items():
-    #             cids_from_sids = []
-    #             for sid in sids:
-    #                 cid = sids_to_cids_map.get(sid)
-    #                 if cid:
-    #                     if isinstance(cid, list):
-    #                         cids_from_sids.extend(cid)
-    #                     else:
-    #                         cids_from_sids.append(cid)
-    #             if cids_from_sids:
-    #                 cas_cids[cas_num] = cids_from_sids
-    #                 still_failed.remove(cas_num) if cas_num in still_failed else None
-    #     failed = still_failed
-    
-    # Get SMILES for all CIDs
-    cas_inchi = {}
-    all_cids = list(set([cid for cids in cas_cids.values() for cid in cids]))
-    
+
+    cas_inchi: dict = {}
+    all_cids = list(set(cid for cids in cas_cids.values() for cid in cids))
+
     if all_cids:
         cids_chunks = get_chunks(all_cids, max_query)
-        cid_to_inchi = {}
-        
+        cid_to_inchi: dict = {}
+
         for chunk in cids_chunks:
-            properties = get_from_cids(chunk, target='property/InChI')
+            properties = get_from_cids(chunk, target="property/InChI")
             if properties:
-                for prop in properties.get('PropertyTable', {}).get('Properties', []):
-                    cid = prop.get('CID')
-                    inchi = prop.get('InChI')
+                for prop in properties.get("PropertyTable", {}).get("Properties", []):
+                    cid = prop.get("CID")
+                    inchi = prop.get("InChI")
                     if cid and inchi:
                         cid_to_inchi[cid] = inchi
 
-        # Map InChI back to CAS
         for cas_num, cids in cas_cids.items():
-            inchi_list = [cid_to_inchi.get(cid) for cid in cids if cid in cid_to_inchi]
+            inchi_list = [cid_to_inchi[cid] for cid in cids if cid in cid_to_inchi]
             if inchi_list:
                 cas_inchi[cas_num] = inchi_list[0] if len(inchi_list) == 1 else inchi_list
 
     return cas_inchi, failed
 
-def cids_to_cas_and_einecs(cids:list, max_query:int = 100):
-    """Legacy function, replaced by cids_to_cas_and_einecs_and_dtx"""
+
+def cids_to_cas_and_einecs(cids: list, max_query: int = 100) -> dict:
+    """Legacy alias for :func:`cids_to_cas_and_einecs_and_dtx`."""
     return cids_to_cas_and_einecs_and_dtx(cids, max_query)
 
-def cids_to_cas_and_einecs_and_dtx(cids:list, max_query:int = 100):
-    """
-    Searches for cas and einecs corresponding to cids
 
-    :params cids: list of cids for which to search for cas and einecs
-    :params max_query: chunk size of cids sent to Pubchem
+def cids_to_cas_and_einecs_and_dtx(cids: list, max_query: int = 100) -> dict:
+    """Extract CAS, EINECS, and DTXSID identifiers from CID synonyms.
+
+    For each CID, the PubChem synonym list is searched for strings
+    matching the CAS (``XXXXXXX-YY-Z``), EINECS (``XXX-XXX-X``), and
+    DTXSID (``DTXSIDxxxxxxxx``) patterns.
+
+    Args:
+        cids: List of PubChem CIDs.
+        max_query: Maximum number of CIDs per batch request.
+
+    Returns:
+        Dict mapping each CID to a nested dict with optional keys
+        ``"CAS"``, ``"EINECS"``, and ``"DTXSID"``.
     """
-    PATcas = r'^(\d){2,7}[-](\d){2}[-](\d)$'
-    PATeinecs = r'^(\d){3}[-](\d){3}[-](\d)$'
-    PATdtx = r'((?<=DTXSID)\d{5,10})'
-    cids_chunks = get_chunks(cids, max_query)
-    cids_cas_einecs = {}
-    for chunk in tqdm(cids_chunks):
-        synonyms = get_from_cids(chunk, target = 'synonyms')
+    PAT_cas = r"^\d{2,7}[-]\d{2}[-]\d$"
+    PAT_einecs = r"^\d{3}[-]\d{3}[-]\d$"
+    PAT_dtx = r"(?<=DTXSID)\d{5,10}"
+    cids_cas_einecs: dict = {}
+    for chunk in tqdm(get_chunks(cids, max_query)):
+        synonyms = get_from_cids(chunk, target="synonyms")
         if synonyms is not None:
-            for v in synonyms.get('InformationList',{}).get('Information',[]):
-                for candidate in v.get('Synonym',[]):
-                    cas = re.findall(PATcas,candidate)
-                    einecs = re.findall(PATeinecs,candidate)
-                    dtx = re.findall(PATdtx, candidate)
-                    if cas is not None and len(cas)>0:
-                        cids_cas_einecs.setdefault(v['CID'],{})['CAS'] = cas[0]
-                    if einecs is not None and len(einecs)>0:
-                        cids_cas_einecs.setdefault(v['CID'],{})['EINECS'] = einecs[0]
-                    if dtx is not None and len(dtx)>0:
-                        cids_cas_einecs.setdefault(v['CID'],{})['DTXSID'] = dtx[0]
+            for v in synonyms.get("InformationList", {}).get("Information", []):
+                for candidate in v.get("Synonym", []):
+                    cas_match = re.findall(PAT_cas, candidate)
+                    einecs_match = re.findall(PAT_einecs, candidate)
+                    dtx_match = re.findall(PAT_dtx, candidate)
+                    if cas_match:
+                        cids_cas_einecs.setdefault(v["CID"], {})["CAS"] = cas_match[0]
+                    if einecs_match:
+                        cids_cas_einecs.setdefault(v["CID"], {})["EINECS"] = einecs_match[0]
+                    if dtx_match:
+                        cids_cas_einecs.setdefault(v["CID"], {})["DTXSID"] = dtx_match[0]
     return cids_cas_einecs
 
-def single_cas_to_pubchem(cas, substance:bool=False):
-    """Legacy method"""
+def single_cas_to_pubchem(cas: str, substance: bool = False) -> Union[list, None]:
+    """Legacy alias for :func:`single_synonym_to_pubchem`."""
     return single_synonym_to_pubchem(cas, substance)
 
-def single_synonym_to_pubchem(cas,substance:bool=False):
-    """Use PubChem REST to convert CAS or other synonyms to CID 
 
-    :params cas: `<str>` or `<list>`
-    :params substance: `<bool>` True if substance (sid), False if compound (cid)
-    :return: cid or sid
+def single_synonym_to_pubchem(
+    synonym: str, substance: bool = False
+) -> Union[list, None]:
+    """Use the PubChem REST API to convert a synonym to a CID or SID list.
+
+    Args:
+        synonym: Any PubChem-recognised synonym (CAS, DTXSID, name, …).
+        substance: If ``True``, return Substance IDs (SIDs); if
+            ``False`` (default), return Compound IDs (CIDs).
+
+    Returns:
+        List of CIDs or SIDs, or ``None`` if the synonym was not found
+        or the response was malformed.
     """
-    if substance is True:
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/name/{cas}/sids/JSON"
+    if substance:
+        url = (
+            f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/name/"
+            f"{synonym}/sids/JSON"
+        )
     else:
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{cas}/cids/JSON"
+        url = (
+            f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/"
+            f"{synonym}/cids/JSON"
+        )
     response = safe_request(url)
     try:
         data = json.loads(response)
     except json.JSONDecodeError:
-        logging.info(response)
-        print(f'Got error for {cas} in json response')
+        logger.info("JSON decode error for synonym %s: %s", synonym, response)
         return None
-    if 'Fault' in data.keys():
-        logging.info(f'CAS {cas} got response {data.get("Fault","")}')
+    if "Fault" in data:
+        logger.info("Synonym %s got fault: %s", synonym, data.get("Fault", ""))
         return None
-    if substance is True:
-        return data.get('IdentifierList',{}).get('SID',[])
-    else:
-        return data.get('IdentifierList',{}).get('CID',[])
+    if substance:
+        return data.get("IdentifierList", {}).get("SID", [])
+    return data.get("IdentifierList", {}).get("CID", [])
 
 
-def SMILES_to_pubchem(smiles):
-    """Use PubChem REST to convert CAS or other synonyms to CID 
+def SMILES_to_pubchem(smiles: str) -> Union[list, None]:
+    """Convert a SMILES string to a list of PubChem CIDs.
 
-    :params cas: `<str>` or `<list>`
-    :params substance: `<bool>` True if substance (sid), False if compound (cid)
+    The ``#`` character (triple bond) is URL-encoded automatically.
 
-    :return: cid or sid
+    Args:
+        smiles: SMILES string of the compound.
+
+    Returns:
+        List of CIDs, or ``None`` if not found or on error.
     """
-    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles.replace('#','%23')}/cids/JSON"
+    encoded = smiles.replace("#", "%23")
+    url = (
+        f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/"
+        f"{encoded}/cids/JSON"
+    )
     response = safe_request(url)
     try:
         data = json.loads(response)
     except json.JSONDecodeError:
-        logging.info(response)
-        print(f'Got error for {smiles} in json response')
+        logger.info("JSON decode error for SMILES %s: %s", smiles, response)
         return None
-    if 'Fault' in data.keys():
-        logging.info(f'CAS {smiles} got response {data.get("Fault","")}')
+    if "Fault" in data:
+        logger.info("SMILES %s got fault: %s", smiles, data.get("Fault", ""))
         return None
-    return data.get('IdentifierList',{}).get('CID',[])
+    return data.get("IdentifierList", {}).get("CID", [])
 
 
-def get_from_cids(cids, target= None, format = "JSON"):
+def get_from_cids(
+    cids: Union[list, int],
+    target: Union[str, None] = None,
+    format: str = "JSON",  # noqa: A002
+) -> Union[dict, None]:
+    """Fetch data from PubChem for the given CIDs.
+
+    Args:
+        cids: Single CID (int) or list of CIDs.
+        target: PubChem endpoint suffix, e.g. ``"synonyms"`` or
+            ``"property/InChI"``.  When ``None``, the compound JSON
+            record itself is retrieved.
+        format: Response format (default: ``"JSON"``).
+
+    Returns:
+        Parsed JSON response as a dict, or ``None`` on error.
     """
-    Fetch data from PubChem for the cids provided
-
-    :params cids: `<list>` of int or `<int>`
-    :params target: `<str>`, e.g. synonyms or e.g. property/InChI
-    """
-    if cids is not None and not isinstance(cids,list):
+    if cids is not None and not isinstance(cids, list):
         cids = [cids]
-    fcid = ','.join([str(x) for x in cids])
+    fcid = ",".join(str(x) for x in cids)
     if target is not None:
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{fcid}/{target}/{format}"
+        url = (
+            f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/"
+            f"{fcid}/{target}/{format}"
+        )
     else:
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{fcid}/{format}"
+        url = (
+            f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/"
+            f"{fcid}/{format}"
+        )
     response = safe_request(url)
     try:
         return json.loads(response)
-    except Exception as e:
-        logger.error(f'Could not fetch {url}, got \n {e}')
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error("Could not fetch %s: %s", url, e)
         return None
-    
-def get_mols_from_cas(cas:Union[list,str],substance = False)-> Chem.SDMolSupplier:
-    cids, success = cas_to_pubchem(cas,substance = substance)
-    return get_mols_from_cids(cids.values())
 
-def get_cids_from_sids(sids:Union[list,int], max_query = 50):
-    if sids is not None and not isinstance(sids,list):
+
+def get_mols_from_cas(
+    cas: Union[list, str], substance: bool = False
+) -> Chem.SDMolSupplier:
+    """Fetch RDKit molecules for CAS number(s) via PubChem.
+
+    Args:
+        cas: Single CAS string or list of CAS strings.
+        substance: If ``True``, resolve via SIDs instead of CIDs.
+
+    Returns:
+        An :class:`rdkit.Chem.SDMolSupplier` for the matched structures.
+    """
+    cids, _ = cas_to_pubchem(cas, substance=substance)
+    return get_mols_from_cids(list(cids.values()))
+
+
+def get_cids_from_sids(
+    sids: Union[list, int], max_query: int = 50
+) -> dict:
+    """Map PubChem Substance IDs (SIDs) to Compound IDs (CIDs).
+
+    Args:
+        sids: Single SID or list of SIDs.
+        max_query: Maximum number of SIDs per batch request.
+
+    Returns:
+        Dict mapping each SID to its CID (or ``None`` if unmapped).
+    """
+    if sids is not None and not isinstance(sids, list):
         sids = [sids]
-    sids_chunks = get_chunks(sids,max_query)
-    ret = {}
-    for csids in sids_chunks:
-        fsid = ','.join([str(x) for x in csids])
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/sid/{fsid}/cids/JSON"
-        data = safe_request(url)
+    ret: dict = {}
+    for csids in get_chunks(sids, max_query):
+        fsid = ",".join(str(x) for x in csids)
+        url = (
+            f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/sid/"
+            f"{fsid}/cids/JSON"
+        )
+        raw = safe_request(url)
         try:
-            data = json.loads(data.decode('utf8'))
-        except Exception as e:
-            print(data)
-            raise e
-        data = data.get('InformationList',{}).get('Information',[])
-        ret.update({x['SID']:x.get('CID',None) for x in data})
+            data = json.loads(raw)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("get_cids_from_sids JSON error: %s", e)
+            raise
+        for info in data.get("InformationList", {}).get("Information", []):
+            ret[info["SID"]] = info.get("CID", None)
     return ret
 
 
-def get_mols_from_cids(cids:Union[list,int], index = 0, max_query = 500, filename = None) -> Chem.SDMolSupplier:
-    """
-    Fetch SDF from PubChem for the cids provided
+def get_mols_from_cids(
+    cids: Union[list, int],
+    index: int = 0,
+    max_query: int = 500,
+    filename: Union[str, None] = None,
+) -> tuple:
+    """Fetch SDF data from PubChem and return an RDKit mol supplier.
 
-    :params cids: `<list>` of int or `<int>`
-    :return: instance of rdkit.Chem  SDMolSupplier
+    Downloaded SDF chunks are appended to *filename* and the file is
+    kept on disk so the caller can reuse or delete it.
+
+    Args:
+        cids: Single CID or list of CIDs.
+        index: Suffix for the temporary filename when *filename* is
+            not provided.
+        max_query: Maximum number of CIDs per batch request.
+        filename: Path for the output SDF file.  A temporary name is
+            used when ``None``.
+
+    Returns:
+        A tuple ``(supplier, filename)`` where *supplier* is an
+        :class:`rdkit.Chem.SDMolSupplier` (or an empty list on error)
+        and *filename* is the path of the written SDF file.
+
+    Raises:
+        PubchemInputError: If the server returns an XML error page.
     """
-    if cids is not None and not isinstance(cids,list):
+    if cids is not None and not isinstance(cids, list):
         cids = [cids]
     if filename is None:
         filename = f"sdffrompubchem_temp_{index}.sdf"
-    cids_chunks = get_chunks(cids,max_query)
-    for ccids in cids_chunks:
-        fcid = ','.join([str(x) for x in ccids])
+    for ccids in get_chunks(cids, max_query):
+        fcid = ",".join(str(x) for x in ccids)
         url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{fcid}/SDF"
         data = safe_request(url)
-        if data[0:6]=='<?xml':
-            logger.error('in get_mols_from_cids: received an error from server')
-            raise PubchemInputError('in get_mols_from_cids: received an error from server')
-        with open(filename,'ab') as f:
-                f.write(data)
+        if data[:5] == b"<?xml":
+            logger.error("get_mols_from_cids: server returned an XML error page")
+            raise PubchemInputError(
+                "get_mols_from_cids: received an error from server"
+            )
+        with open(filename, "ab") as f:
+            f.write(data)
     try:
-        suppl = Chem.SDMolSupplier(filename,
-                                    sanitize = True,
-                                    removeHs = False)
-        # suppl = Chem.ForwardSDMolSupplier(stream,
-        #                             sanitize = False,
-        #                             removeHs = True)
+        suppl = Chem.SDMolSupplier(filename, sanitize=True, removeHs=False)
         return suppl, filename
-    except Exception as e:
-        logger.info(e)
-        print(f"Got error {e.__class__} for {index}")
-        return [], ''
+    except Exception as e:  # pylint: disable=broad-except
+        logger.info("get_mols_from_cids error for index %s: %s", index, e)
+        return [], ""
 
-def get_mols_from_sids(sids:Union[list,int], index = 0, max_query = 200, filename = None) -> Chem.SDMolSupplier:
-    """
-    Fetch SDF from PubChem for the cids provided
 
-    :params sids: `<list>` of int or `<int>`
-    :return: instance of rdkit.Chem  SDMolSupplier
+def get_mols_from_sids(
+    sids: Union[list, int],
+    index: int = 0,
+    max_query: int = 200,
+    filename: Union[str, None] = None,
+) -> tuple:
+    """Fetch SDF data from PubChem for substance IDs (SIDs).
+
+    Analogous to :func:`get_mols_from_cids` but queries the substance
+    endpoint.
+
+    Args:
+        sids: Single SID or list of SIDs.
+        index: Suffix for the temporary filename when *filename* is
+            not provided.
+        max_query: Maximum number of SIDs per batch request.
+        filename: Path for the output SDF file.
+
+    Returns:
+        A tuple ``(supplier, filename)`` — see :func:`get_mols_from_cids`.
+
+    Raises:
+        PubchemInputError: If the server returns an XML error page.
     """
-    if sids is not None and not isinstance(sids,list):
+    if sids is not None and not isinstance(sids, list):
         sids = [sids]
     if filename is None:
         filename = f"sdffrompubchem_temp_{index}.sdf"
-    sids_chunks = get_chunks(sids,max_query)
-    for ssids in sids_chunks:
-        fsid = ','.join([str(x) for x in ssids])
+    for ssids in get_chunks(sids, max_query):
+        fsid = ",".join(str(x) for x in ssids)
         url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/sid/{fsid}/SDF"
         data = safe_request(url)
-        if data[0:6]=='<?xml':
-            logger.error('in get_mols_from_sids: received an error from server')
-            raise PubchemInputError('in get_mols_from_sids: received an error from server')
-        with open(filename,'ab') as f:
-                f.write(data)
+        if data[:5] == b"<?xml":
+            logger.error("get_mols_from_sids: server returned an XML error page")
+            raise PubchemInputError(
+                "get_mols_from_sids: received an error from server"
+            )
+        with open(filename, "ab") as f:
+            f.write(data)
     try:
-        suppl = Chem.SDMolSupplier(filename,
-                                    sanitize = True,
-                                    removeHs = False)
-        # suppl = Chem.ForwardSDMolSupplier(stream,
-        #                             sanitize = False,
-        #                             removeHs = True)
+        suppl = Chem.SDMolSupplier(filename, sanitize=True, removeHs=False)
         return suppl, filename
-    except Exception as e:
-        logger.info(e)
-        print(f"Got error {e.__class__} for {index}")
-        return [], ''
+    except Exception as e:  # pylint: disable=broad-except
+        logger.info("get_mols_from_sids error for index %s: %s", index, e)
+        return [], ""
 
-def cids_to_mol(cids, filename = None, max_query = 500):
-    suppl, _ = get_mols_from_cids(cids, filename = filename, max_query = max_query)
-    for i,mol in enumerate(suppl):
+def cids_to_mol(
+    cids: Union[list, int],
+    filename: Union[str, None] = None,
+    max_query: int = 500,
+):
+    """Yield RDKit molecules for the given CIDs.
+
+    Args:
+        cids: Single CID or list of CIDs.
+        filename: Optional path for the intermediate SDF file.
+        max_query: Maximum number of CIDs per batch request.
+
+    Yields:
+        :class:`rdkit.Chem.Mol` instances (may include ``None`` for
+        unparseable entries).
+    """
+    suppl, _ = get_mols_from_cids(cids, filename=filename, max_query=max_query)
+    for mol in suppl:
         yield mol
 
-def get_cids_from_smiles(smiles):
-    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/cids/JSON"
+
+def get_cids_from_smiles(smiles: str) -> Union[list, None]:
+    """Convert a SMILES string to a list of PubChem CIDs.
+
+    Args:
+        smiles: SMILES string of the compound.
+
+    Returns:
+        List of CIDs, or ``None`` if not found.
+    """
+    url = (
+        f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/"
+        f"{smiles}/cids/JSON"
+    )
     response = safe_request(url)
     data = json.loads(response)
-    return data.get('IdentifierList',{}).get('CID',None)
+    return data.get("IdentifierList", {}).get("CID", None)
 
-def cas_to_mols(cas:Union[list,str],save=None)->dict:
-    """
-    :save: saving path (without extension)
 
-    Returns a dictionary with Chem.MolSupplier for each cas given
+def cas_to_mols(cas: Union[list, str], save: Union[str, None] = None) -> dict:
+    """Fetch RDKit molecules for CAS number(s).
+
+    Resolves each CAS number to CIDs, downloads the corresponding SDF
+    from PubChem, sets the ``"CAS"`` property on every molecule, and
+    returns a dict keyed by CAS.
+
+    Args:
+        cas: Single CAS string or list of CAS strings.
+        save: If provided, the CAS→CID mapping is saved to
+            ``<save>_cas_cids.json`` before fetching structures.
+
+    Returns:
+        Dict mapping each CAS string to a list of
+        :class:`rdkit.Chem.Mol` objects.
     """
-    cas_cids, failed = cas_to_pubchem(cas, substance = False)
+    cas_cids, _ = cas_to_pubchem(cas, substance=False)
     if save is not None:
-        with open(save+"_cas_cids.json","w") as f:
-            json.dump(cas_cids,f)
-    mols = {}
-    files = []
-    for i,(cas, cids) in enumerate(cas_cids.items()):
-        suppl, filename = get_mols_from_cids(cids, index = i)
+        with open(save + "_cas_cids.json", "w", encoding="utf-8") as f:
+            json.dump(cas_cids, f)
+    mols: dict = {}
+    files: list = []
+    for i, (cas_num, cids) in enumerate(cas_cids.items()):
+        suppl, filename = get_mols_from_cids(cids, index=i)
         for m in suppl:
             if m is not None:
-                m.SetProp('CAS', cas)
-                mols.setdefault(cas,[]).append(m) 
+                m.SetProp("CAS", cas_num)
+                mols.setdefault(cas_num, []).append(m)
         files.append(filename)
     for filename in files:
         try:
             os.remove(filename)
-        except FileNotFoundError:
-            pass
-        except PermissionError:
+        except (FileNotFoundError, PermissionError):
             pass
     return mols
-        
 
-def cid_to_cas(cid, get_einecs = False) -> dict:
-    """
-    Use PubChem REST to convert CID to CAS
 
-    :params cid: `<str>` or `<int>` or `<list>` cid to convert
-    :params einec: `<bool>` if True, will return a tupple with cas first and einecs second
-    :return: a dictionary of lists with given cids as entries, if only one cid was given
-            then the function returns only a list with corresponding cas number as list
+def cid_to_cas(
+    cid: Union[str, int, list], get_einecs: bool = False
+) -> Union[dict, list, None]:
+    """Convert PubChem CID(s) to CAS numbers (and optionally EINECS).
+
+    Args:
+        cid: Single CID (int or str) or a list of CIDs.
+        get_einecs: If ``True``, also return EINECS numbers.
+
+    Returns:
+        When *get_einecs* is ``False``:
+
+        * Single CID → list of CAS strings for that CID.
+        * Multiple CIDs → ``dict`` mapping each CID to its CAS list.
+
+        When *get_einecs* is ``True``:
+
+        * Dict mapping each CID to a ``(cas_list, einecs_list)`` tuple.
     """
-    if isinstance(cid,str) or isinstance(cid, int):
+    if isinstance(cid, (str, int)):
         multiple = False
         cid = [cid]
-    elif isinstance(cid,list):
+    elif isinstance(cid, list):
         multiple = True
     else:
-        logger.info(f"cas_to_cid: {cid} has not a valid format, returning None")
+        logger.info("cid_to_cas: %s has an invalid format", cid)
         return None
-    data = get_from_cids(cid,'synonyms')
+
+    data = get_from_cids(cid, "synonyms")
     if data is None:
         return None
-    cas = {}
-    einecs = {}
+
+    cas: dict = {}
+    einecs: dict = {}
     PAT = r"\d{1,10}[-]\d{2}[-]\d"
-    EINECS = r'(EINECS\s)?(\d{3}[-]\d{3}[-]\d)'
+    EINECS_PAT = r"(EINECS\s)?(\d{3}[-]\d{3}[-]\d)"
+
     for info in data.get("InformationList", {}).get("Information", []):
-        icid = info.get('CID',None)
-        if icid is not None:
-            synonyms = info.get('Synonym',[])
-            for synonym in synonyms:
-                mat = re.fullmatch(PAT, synonym)
-                if mat is not None:
-                    cas.setdefault(icid,[]).append(synonym)
-                if get_einecs is True:
-                    mat = re.fullmatch(EINECS, synonym)
-                    if mat is not None:
-                        einecs.setdefault(icid,[]).append(mat.group(2))
-    if multiple is True and get_einecs is False:
-        return cas
-    elif get_einecs is False:
-        return cas.get(cid[0],[None])
-    elif multiple is True:
-        return {c: (cas.get(c,[None]),einecs.get(c,[None]))
-                    for c in set(cas.keys()).union(set(einecs.keys()))}
-    else:
-        return {c: (cas.get(c,[None]),einecs.get(c,[None]))
-                    for c in set(cas.keys()).union(set(einecs.keys()))}.get(cid[0], None)
+        icid = info.get("CID")
+        if icid is None:
+            continue
+        for synonym in info.get("Synonym", []):
+            if re.fullmatch(PAT, synonym):
+                cas.setdefault(icid, []).append(synonym)
+            if get_einecs:
+                match = re.fullmatch(EINECS_PAT, synonym)
+                if match:
+                    einecs.setdefault(icid, []).append(match.group(2))
+
+    if not get_einecs:
+        return cas if multiple else cas.get(cid[0], [None])
+
+    combined = {
+        c: (cas.get(c, [None]), einecs.get(c, [None]))
+        for c in set(cas) | set(einecs)
+    }
+    return combined if multiple else combined.get(cid[0], None)
 
 
-def pubchem_pfas_tree(hnid = 5517102, max_tries = 2) -> list:
+def pubchem_pfas_tree(hnid: int = 5517102, max_tries: int = 2) -> Union[list, None]:
+    """Fetch CIDs belonging to a PubChem classification tree node.
+
+    Args:
+        hnid: Hierarchy node ID.  Defaults to the OECD PFAS list node
+            (5517102).
+        max_tries: Unused; kept for backwards compatibility.
+
+    Returns:
+        List of CIDs in the hierarchy, or ``None`` on error.
     """
-    Fetch pfas_tree info for specified hnid. To get a list of hid
-    for PFAS use the function `getPcHidTree` from `lists.scripts.utility`.
-
-
-    :params hnid: `<int>` `<str>` with hnid number to process, default to OECD list
-    see list lists.data.PubChem_PFAS_Tree_Details.csv
-    """
-    id_type = 'cids'
-    output_format = 'json'
-    rest = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/classification/hnid/{str(hnid)}/{id_type}/{output_format}"
-    response = safe_request(rest)
+    url = (
+        f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/classification/hnid/"
+        f"{hnid}/cids/json"
+    )
+    response = safe_request(url)
     try:
         data = json.loads(response)
-    except:
+    except Exception:  # pylint: disable=broad-except
         return None
-    if data.get("IdentifierList") is None:
+    id_list = data.get("IdentifierList")
+    if id_list is None:
         return None
-    return data.get("IdentifierList").get("CID")
+    return id_list.get("CID")
 
-def download_cids_by_hnid(hnid:int, folder_path:str, force:bool = False):
-    """
-    Downloads the list of cids in hnid and saves it in path (last digit of hnid as subfolder)
 
-    :params hnid: hnid of the list
-    :params folder_path: the main folder where the json files will be saved
-    :params force: whether to force to download all lists (otherwise, lists for which a file already exists will be skiped)
+def download_cids_by_hnid(
+    hnid: int, folder_path: str, force: bool = False
+) -> Union[list, None]:
+    """Download and cache the CID list for a PubChem hierarchy node.
+
+    The result is stored in ``<folder_path>/hnid_XXXXXXX.json``.  On
+    subsequent calls the cached file is read unless *force* is
+    ``True``.
+
+    Args:
+        hnid: Hierarchy node ID.
+        folder_path: Directory where the JSON cache files are stored.
+        force: If ``True``, always re-download even when a cache file
+            already exists.
+
+    Returns:
+        List of CIDs, or ``None`` if the download failed.
     """
     filename = f"{folder_path}/hnid_{str(hnid).zfill(7)}.json"
-    if force is True or not os.path.exists(filename):
+    if force or not os.path.exists(filename):
         cids_all = pubchem_pfas_tree(hnid=hnid)
-        with open(filename, 'w') as f:
-            json.dump(cids_all,f)
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(cids_all, f)
         return cids_all
-    with open(filename, 'r') as f:
-            return json.load(f)
+    with open(filename, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-def get_HSDB(cids:Union[list,int]):
+
+def get_HSDB(cids: Union[list, int]) -> Union[dict, int, None]:
+    """Return HSDB identifier(s) for the given CID(s).
+
+    Args:
+        cids: Single CID or list of CIDs.
+
+    Returns:
+        When a single CID is given, returns the HSDB number (int) or
+        ``None``.  For a list of CIDs, returns a dict mapping each CID
+        to its HSDB number (or ``None``).
+
+    Raises:
+        ValueError: If *cids* is not an int or a list.
     """
-    returns HSDB id from list of cids    
-    """
-    data = {}
     PAT = r"(?<=HSDB\s)(\d*)"
-    def find_entry(synonyms):
+
+    def _find_hsdb(synonyms: list) -> Union[int, None]:
         for synonym in synonyms:
-            for match in re.finditer(PAT,synonym):
+            for match in re.finditer(PAT, synonym):
                 return int(match.group())
         return None
-    if isinstance(cids,int):
+
+    if isinstance(cids, int):
         cids = [cids]
-    elif not isinstance(cids,list):
-        raise ValueError("cids should be an integer of a list of integers")
-    info = get_from_cids(cids,target='synonyms').get("InformationList",{}).get('Information',{})
-    for d in info:
-        cid = d['CID']
-        data[cid] = find_entry(d['Synonym'])
-    if len(cids)==1:
+    elif not isinstance(cids, list):
+        raise ValueError("cids must be an int or a list of ints")
+    info = (
+        get_from_cids(cids, target="synonyms")
+        .get("InformationList", {})
+        .get("Information", {})
+    )
+    data = {d["CID"]: _find_hsdb(d["Synonym"]) for d in info}
+    if len(cids) == 1:
         return data[cids[0]]
     return data
-    
-# Function to process CAS numbers and get SMILES
-def cas_to_smiles(cas_list, unique=True, join_smiles = True):
+
+
+# ---------------------------------------------------------------------------
+# SMILES conversion helpers
+# ---------------------------------------------------------------------------
+
+
+def synonym_to_smiles(
+    synonym_list: list,
+    unique: bool = True,
+    join_smiles: bool = True,
+) -> tuple[dict, list]:
+    """Convert a list of synonyms (CAS, DTXSID, …) to SMILES strings.
+
+    For each synonym the corresponding molecules are fetched from
+    PubChem.  When *unique* is ``True`` duplicates are removed by
+    comparing InChIKeys.  Multiple structures per synonym are joined
+    with a ``.`` when *join_smiles* is ``True``, or returned as a list
+    otherwise.
+
+    Args:
+        synonym_list: Synonyms to resolve (CAS numbers, DTXSIDs, …).
+        unique: Deduplicate structures by InChIKey.
+        join_smiles: If ``True``, join multiple SMILES with ``"."``
+            into a single string; otherwise return a list.
+
+    Returns:
+        A tuple ``(processed, failed)`` where *processed* maps each
+        synonym to its SMILES (str or list), and *failed* contains
+        synonyms that could not be resolved.
     """
-    Convert CAS numbers (or other synonyms, e.g DTXSID) to SMILES, handling multiple molecules per CAS
-    and deduplicating by InChI key (if unique =True, else returns list)
-    if join_smiles is True, multiple molecules will be converted to SMILES and joined using . (dot).
-    """
-    all_smiles = []
-    processed_cas = {}
-    failed_cas = []
-    
-    for cas in cas_list:
-        if pd.isna(cas) or cas == '':
+    processed: dict = {}
+    failed: list = []
+
+    for synonym in synonym_list:
+        if not synonym:
             continue
-            
         try:
-            print(f"Processing CAS: {cas}")
-            mols_dict = cas_to_mols(cas)
-            
-            if cas in mols_dict:
-                mol_list = mols_dict[cas]
-                cas_smiles = []
-                if unique is True:
-                    seen_inchikeys = set()
-                    
-                    for mol in mol_list:
-                        if mol is not None:
-                            try:
-                                # Generate InChI key for deduplication
-                                inchi_key = Chem.MolToInchiKey(mol)
-                                
-                                if inchi_key not in seen_inchikeys:
-                                    smiles = Chem.MolToSmiles(mol)
-                                    cas_smiles.append(smiles)
-                                    seen_inchikeys.add(inchi_key)
-                            except Exception as e:
-                                print(f"  Warning: Could not process molecule for CAS {cas}: {e}")
-                else:
-                    cas_smiles = [Chem.MolToSmiles(m) for m in mol_list]
-                if cas_smiles:
-                    # Combine multiple SMILES with dots
-                    if join_smiles is True:
-                        combined_smiles = '.'.join(cas_smiles)
-                        processed_cas[cas] = combined_smiles
-                        all_smiles.append(combined_smiles)
-                    else:
-                        processed_cas[cas] = cas_smiles
-                    print(f"  Success: {len(cas_smiles)} unique molecules found")
-                else:
-                    failed_cas.append(cas)
-                    processed_cas[cas] = None
-                    print(f"  Failed: No valid molecules found")
+            mols_dict = cas_to_mols(synonym)
+            if synonym not in mols_dict:
+                failed.append(synonym)
+                processed[synonym] = None
+                continue
+            mol_list = mols_dict[synonym]
+            smiles_list: list = []
+            if unique:
+                seen_inchikeys: set = set()
+                for mol in mol_list:
+                    if mol is None:
+                        continue
+                    try:
+                        inchi_key = Chem.MolToInchiKey(mol)
+                        if inchi_key not in seen_inchikeys:
+                            smiles_list.append(Chem.MolToSmiles(mol))
+                            seen_inchikeys.add(inchi_key)
+                    except Exception as e:  # pylint: disable=broad-except
+                        logger.warning(
+                            "Could not process molecule for %s: %s", synonym, e
+                        )
             else:
-                failed_cas.append(cas)
-                processed_cas[cas] = None
-                print(f"  Failed: CAS not found in PubChem")
-                
-        except Exception as e:
-            print(f"  Error processing CAS {cas}: {e}")
-            failed_cas.append(cas)
-            processed_cas[cas] = None
-    
-    return processed_cas, failed_cas
+                smiles_list = [
+                    Chem.MolToSmiles(m) for m in mol_list if m is not None
+                ]
+
+            if smiles_list:
+                processed[synonym] = (
+                    ".".join(smiles_list) if join_smiles else smiles_list
+                )
+            else:
+                failed.append(synonym)
+                processed[synonym] = None
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Error processing synonym %s: %s", synonym, e)
+            failed.append(synonym)
+            processed[synonym] = None
+
+    return processed, failed
+
+
+def cas_to_smiles(
+    cas_list: list,
+    unique: bool = True,
+    join_smiles: bool = True,
+) -> tuple[dict, list]:
+    """Convert CAS numbers to SMILES strings.
+
+    Convenience wrapper around :func:`synonym_to_smiles`.
+
+    Args:
+        cas_list: List of CAS numbers.
+        unique: Deduplicate structures by InChIKey.
+        join_smiles: Join multiple SMILES per CAS with ``"."``.
+
+    Returns:
+        ``(processed, failed)`` — see :func:`synonym_to_smiles`.
+    """
+    return synonym_to_smiles(cas_list, unique=unique, join_smiles=join_smiles)
+
+
+def dtxsid_to_smiles(
+    dtxsid_list: list,
+    unique: bool = True,
+    join_smiles: bool = True,
+) -> tuple[dict, list]:
+    """Convert DTXSID identifiers (or any PubChem synonyms) to SMILES.
+
+    Convenience wrapper around :func:`synonym_to_smiles`.
+
+    Args:
+        dtxsid_list: List of DTXSID strings.
+        unique: Deduplicate structures by InChIKey.
+        join_smiles: Join multiple SMILES per DTXSID with ``"."``.
+
+    Returns:
+        ``(processed, failed)`` — see :func:`synonym_to_smiles`.
+    """
+    return synonym_to_smiles(dtxsid_list, unique=unique, join_smiles=join_smiles)

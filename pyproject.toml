@@ -6,26 +6,49 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pubchem"
-version = "0.0.4"
-description = "Pubchem"
-#readme = "README.md"
+version = "1.0.0"
+description = "Python wrapper for the PubChem PUG REST API"
+readme = "README.md"
 authors = [{ name = "Luc Miaz", email = "luc@miaz.ch" }]
-#license = { file = "LICENSE" }
 classifiers = [
     "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
     "Programming Language :: Python",
     "Natural Language :: English",
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Chemistry",
 ]
 
-keywords = ["pubchem"]
+keywords = ["pubchem", "chemistry", "cas", "cid", "rdkit"]
 
 dependencies = [
     "requests",
-    "numpy >=1.19.4",
+    "numpy>=1.19.4",
     "regex",
-    "datetime",
-    "tqdm >= 4.65.0"
+    "tqdm>=4.65.0",
 ]
-requires-python = ">=3.6"
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "pylint",
+]
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme",
+    "sphinx-autoapi",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pylint.messages_control]
+disable = [
+    "C0114",  # missing-module-docstring (covered at package level)
+    "R0903",  # too-few-public-methods
+]
