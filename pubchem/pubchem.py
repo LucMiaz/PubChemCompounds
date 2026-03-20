@@ -25,7 +25,7 @@ __all__ = [
     "format_cas",
     "cas_to_cid",
     "cas_to_sid",
-    "cas_to_pubchem",
+    "synonyms_to_pubchem",
     "inchikey_to_pubchem",
     "cas_to_inchi",
     "cids_to_cas_and_einecs",
@@ -81,7 +81,7 @@ def format_cas(_cas: Union[str, list]) -> str:
 def cas_to_cid(cas: Union[str, list]) -> tuple[dict, list]:
     """Convert CAS number(s) to PubChem Compound IDs (CIDs).
 
-    Convenience wrapper around :func:`cas_to_pubchem` with
+    Convenience wrapper around :func:`synonyms_to_pubchem` with
     ``substance=False``.
 
     Args:
@@ -92,13 +92,13 @@ def cas_to_cid(cas: Union[str, list]) -> tuple[dict, list]:
         keyed by CAS with lists of CIDs as values, and *failed* is a
         list of CAS numbers that could not be resolved.
     """
-    return cas_to_pubchem(cas, substance=False)
+    return synonyms_to_pubchem(cas, substance=False)
 
 
 def cas_to_sid(cas: Union[str, list]) -> tuple[dict, list]:
     """Convert CAS number(s) to PubChem Substance IDs (SIDs).
 
-    Convenience wrapper around :func:`cas_to_pubchem` with
+    Convenience wrapper around :func:`synonyms_to_pubchem` with
     ``substance=True``.
 
     Args:
@@ -109,7 +109,7 @@ def cas_to_sid(cas: Union[str, list]) -> tuple[dict, list]:
         keyed by CAS with lists of SIDs as values, and *failed* is a
         list of CAS numbers that could not be resolved.
     """
-    return cas_to_pubchem(cas, substance=True)
+    return synonyms_to_pubchem(cas, substance=True)
 
 
 def inchikey_to_pubchem(inchikey: str) -> Union[list, None]:
@@ -137,11 +137,15 @@ def inchikey_to_pubchem(inchikey: str) -> Union[list, None]:
     return data.get("IdentifierList", {}).get("CID", None)
 
 
-def cas_to_pubchem(cas: Union[str, list], substance: bool) -> tuple[dict, list]:
-    """Look up PubChem IDs for one or more CAS numbers (or other synonyms).
+# backward-compatible alias
+cas_to_pubchem = None  # defined after synonyms_to_pubchem below
+
+
+def synonyms_to_pubchem(synonym: Union[str, list], substance: bool) -> tuple[dict, list]:
+    """Look up PubChem IDs for one or more synonyms.
 
     Args:
-        cas: Single CAS string or a list of CAS strings.
+        synonym: Single synonym string or a list of synonym strings.
         substance: If ``True``, return Substance IDs (SIDs); if
             ``False``, return Compound IDs (CIDs).
 
@@ -150,29 +154,34 @@ def cas_to_pubchem(cas: Union[str, list], substance: bool) -> tuple[dict, list]:
         string to its list of IDs, and *failed* contains CAS strings
         that returned no result.
     """
-    if cas is None:
+    if synonym is None:
         return {}, []
-    if isinstance(cas, str):
-        fcas = [cas]
+    if isinstance(synonym, str):
+        fsynonym = [synonym]
     else:
-        fcas = list(cas)
+        fsynonym = list(synonym)
 
     return_dict: dict = {}
     failed: list = []
-    if len(fcas)>1:
-        for _cas in tqdm(fcas, total=len(fcas)):
-            x = single_synonym_to_pubchem(_cas, substance=substance)
+    if len(fsynonym)>1:
+        for _synonym in tqdm(fsynonym, total=len(fsynonym)):
+            x = single_synonym_to_pubchem(_synonym, substance=substance)
             if x is None:
-                failed.append(_cas)
+                failed.append(_synonym)
             else:
-                return_dict[_cas] = x
+                return_dict[_synonym] = x
     else:
-        x = single_synonym_to_pubchem(fcas[0], substance=substance)
+        x = single_synonym_to_pubchem(fsynonym[0], substance=substance)
         if x is None:
-            failed.append(fcas[0])
+            failed.append(fsynonym[0])
         else:
-            return_dict[fcas[0]] = x
+            return_dict[fsynonym[0]] = x
     return return_dict, failed
+
+
+# Backward-compatible alias (was renamed to synonyms_to_pubchem)
+cas_to_pubchem = synonyms_to_pubchem
+
 
 def get_chunks(l: list, n: int) -> list:
     """Divide a list into chunks of at most *n* elements.
@@ -207,7 +216,7 @@ def cas_to_inchi(cas: Union[str, list], max_query: int = 100) -> tuple[dict, lis
         multiple CIDs matched), and *failed* lists unresolved CAS
         numbers.
     """
-    cas_cids, failed = cas_to_pubchem(cas, substance=False)
+    cas_cids, failed = synonyms_to_pubchem(cas, substance=False)
 
     cas_inchi: dict = {}
     all_cids = list(set(cid for cids in cas_cids.values() for cid in cids))
@@ -394,7 +403,7 @@ def get_mols_from_cas(
     Returns:
         An :class:`rdkit.Chem.SDMolSupplier` for the matched structures.
     """
-    cids, _ = cas_to_pubchem(cas, substance=substance)
+    cids, _ = synonyms_to_pubchem(cas, substance=substance)
     return get_mols_from_cids(list(cids.values()))
 
 
@@ -565,29 +574,42 @@ def get_cids_from_smiles(smiles: str) -> Union[list, None]:
     return data.get("IdentifierList", {}).get("CID", None)
 
 
-def cas_to_mols(cas: Union[list, str], save: Union[str, None] = None) -> dict:
-    """Fetch RDKit molecules for CAS number(s).
+def synonyms_to_mols(
+    cas: Union[list, str],
+    save: Union[str, None] = None,
+    max_cids: Union[int, None] = None,
+) -> dict:
+    """Fetch RDKit molecules for synonym(s) or other identifiers.
 
-    Resolves each CAS number to CIDs, downloads the corresponding SDF
-    from PubChem, sets the ``"CAS"`` property on every molecule, and
-    returns a dict keyed by CAS.
+    Resolves each synonym to CIDs via PubChem, downloads the
+    corresponding SDF, sets the ``"CAS"`` property on every molecule,
+    and returns a dict keyed by synonym.
 
     Args:
-        cas: Single CAS string or list of CAS strings.
-        save: If provided, the CAS→CID mapping is saved to
+        synonyms: Single synonym string (CAS, DTXSID, …) or list of
+            synonym strings.
+        save: If provided, the synonym→CID mapping is saved to
             ``<save>_cas_cids.json`` before fetching structures.
+        max_cids: Maximum number of CIDs to fetch per synonym.  When
+            set to ``1`` only the canonical/preferred CID
+            returned by PubChem is used, which prevents hundreds of
+            stereoisomers or salt forms from being returned for a
+            single DTXSID or CAS number.  Set to ``None`` (default) to fetch
+            all matching CIDs.
 
     Returns:
-        Dict mapping each CAS string to a list of
+        Dict mapping each synonym to a list of
         :class:`rdkit.Chem.Mol` objects.
     """
-    cas_cids, _ = cas_to_pubchem(cas, substance=False)
+    synonyms_cids, _ = synonyms_to_pubchem(cas, substance=False)
     if save is not None:
         with open(save + "_cas_cids.json", "w", encoding="utf-8") as f:
-            json.dump(cas_cids, f)
+            json.dump(synonyms_cids, f)
     mols: dict = {}
     files: list = []
-    for i, (cas_num, cids) in enumerate(cas_cids.items()):
+    for i, (cas_num, cids) in enumerate(synonyms_cids.items()):
+        if max_cids is not None:
+            cids = cids[:max_cids]
         suppl, filename = get_mols_from_cids(cids, index=i)
         for m in suppl:
             if m is not None:
@@ -601,6 +623,18 @@ def cas_to_mols(cas: Union[list, str], save: Union[str, None] = None) -> dict:
             pass
     return mols
 
+def cas_to_mols(cas: Union[list, str], max_cids: Union[int, None] = None) -> dict:
+    """Fetch RDKit molecules for CAS number(s) via PubChem.
+_
+    Args:
+        cas: Single CAS string or list of CAS strings.
+        max_cids: Maximum number of CIDs to fetch per CAS.  When set
+            to ``1``, only the canonical/preferred CID returned by
+            PubChem is used, which prevents hundreds of stereoisomers
+            or salt forms from being returned for a single CAS number.
+            Set to ``None`` (default) to fetch all matching CIDs.
+    """
+    return synonyms_to_mols(cas, max_cids=max_cids)
 
 def cid_to_cas(
     cid: Union[str, int, list], get_einecs: bool = False
@@ -757,8 +791,8 @@ def get_HSDB(cids: Union[list, int]) -> Union[dict, int, None]:
 # ---------------------------------------------------------------------------
 
 
-def synonym_to_smiles(
-    synonym_list: list,
+def synonyms_to_smiles(
+    synonym_list: Union[list, str],
     unique: bool = True,
     join_smiles: bool = True,
 ) -> tuple[dict, list]:
@@ -770,8 +804,14 @@ def synonym_to_smiles(
     with a ``.`` when *join_smiles* is ``True``, or returned as a list
     otherwise.
 
+    Only the canonical (first) CID returned by PubChem is used per
+    synonym by default; pass ``max_cids=None`` to :func:`cas_to_mols`
+    directly if you need all forms.
+
     Args:
-        synonym_list: Synonyms to resolve (CAS numbers, DTXSIDs, …).
+        synonym_list: Synonym or list of synonyms to resolve (CAS
+            numbers, DTXSIDs, compound names, …).  A bare string is
+            treated as a single-element list.
         unique: Deduplicate structures by InChIKey.
         join_smiles: If ``True``, join multiple SMILES with ``"."``
             into a single string; otherwise return a list.
@@ -781,6 +821,9 @@ def synonym_to_smiles(
         synonym to its SMILES (str or list), and *failed* contains
         synonyms that could not be resolved.
     """
+    if isinstance(synonym_list, str):
+        synonym_list = [synonym_list]
+
     processed: dict = {}
     failed: list = []
 
@@ -836,7 +879,7 @@ def cas_to_smiles(
 ) -> tuple[dict, list]:
     """Convert CAS numbers to SMILES strings.
 
-    Convenience wrapper around :func:`synonym_to_smiles`.
+    Convenience wrapper around :func:`synonyms_to_smiles`.
 
     Args:
         cas_list: List of CAS numbers.
@@ -844,9 +887,9 @@ def cas_to_smiles(
         join_smiles: Join multiple SMILES per CAS with ``"."``.
 
     Returns:
-        ``(processed, failed)`` — see :func:`synonym_to_smiles`.
+        ``(processed, failed)`` — see :func:`synonyms_to_smiles`.
     """
-    return synonym_to_smiles(cas_list, unique=unique, join_smiles=join_smiles)
+    return synonyms_to_smiles(cas_list, unique=unique, join_smiles=join_smiles)
 
 
 def dtxsid_to_smiles(
@@ -856,7 +899,7 @@ def dtxsid_to_smiles(
 ) -> tuple[dict, list]:
     """Convert DTXSID identifiers (or any PubChem synonyms) to SMILES.
 
-    Convenience wrapper around :func:`synonym_to_smiles`.
+    Convenience wrapper around :func:`synonyms_to_smiles`.
 
     Args:
         dtxsid_list: List of DTXSID strings.
@@ -864,6 +907,37 @@ def dtxsid_to_smiles(
         join_smiles: Join multiple SMILES per DTXSID with ``"."``.
 
     Returns:
-        ``(processed, failed)`` — see :func:`synonym_to_smiles`.
+        ``(processed, failed)`` — see :func:`synonyms_to_smiles`.
     """
-    return synonym_to_smiles(dtxsid_list, unique=unique, join_smiles=join_smiles)
+    return synonyms_to_smiles(dtxsid_list, unique=unique, join_smiles=join_smiles)
+
+def dtxsid_to_mols(dtxsid_list: list) -> tuple[dict, list]:
+    """Convert DTXSID identifiers to RDKit molecules.
+
+    Args:
+        dtxsid_list: List of DTXSID strings.
+
+    Returns:
+        A tuple ``(processed, failed)`` where *processed* maps each
+        DTXSID to a list of :class:`rdkit.Chem.Mol` objects, and
+        *failed* contains DTXSIDs that could not be resolved.
+    """
+    processed: dict = {}
+    failed: list = []
+
+    for dtxsid in dtxsid_list:
+        if not dtxsid:
+            continue
+        try:
+            mols_dict = cas_to_mols(dtxsid)
+            if dtxsid not in mols_dict:
+                failed.append(dtxsid)
+                processed[dtxsid] = None
+                continue
+            processed[dtxsid] = mols_dict[dtxsid]
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Error processing DTXSID %s: %s", dtxsid, e)
+            failed.append(dtxsid)
+            processed[dtxsid] = None
+
+    return processed, failed
