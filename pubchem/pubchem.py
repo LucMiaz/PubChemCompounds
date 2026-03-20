@@ -15,10 +15,12 @@ import os
 from tqdm import tqdm
 import logging
 from rdkit import Chem
+from rdkit import rdBase
 import pandas as pd
 from .throttle import safe_request
 
 logger = logging.getLogger(__name__)
+rdBase.DisableLog('rdApp.warning')
 
 __all__ = [
     "PubchemInputError",
@@ -41,6 +43,11 @@ __all__ = [
     "cids_to_mol",
     "get_cids_from_smiles",
     "cas_to_mols",
+    "synonyms_to_mols",
+    "synonyms_to_smiles",
+    "cas_to_smiles",
+    "dtxsid_to_smiles",
+    "dtxsid_to_mols",
 ]
 
 
@@ -445,10 +452,7 @@ def get_mols_from_cids(
     max_query: int = 500,
     filename: Union[str, None] = None,
 ) -> tuple:
-    """Fetch SDF data from PubChem and return an RDKit mol supplier.
-
-    Downloaded SDF chunks are appended to *filename* and the file is
-    kept on disk so the caller can reuse or delete it.
+    """Fetch SDF data from PubChem and return a list of RDKit molecules.
 
     Args:
         cids: Single CID or list of CIDs.
@@ -459,9 +463,10 @@ def get_mols_from_cids(
             used when ``None``.
 
     Returns:
-        A tuple ``(supplier, filename)`` where *supplier* is an
-        :class:`rdkit.Chem.SDMolSupplier` (or an empty list on error)
-        and *filename* is the path of the written SDF file.
+        A tuple ``(mols, filename)`` where *mols* is a list of
+        :class:`rdkit.Chem.Mol` objects (may contain ``None`` for
+        unparseable entries) and *filename* is the path of the written
+        SDF file (already deleted on return).
 
     Raises:
         PubchemInputError: If the server returns an XML error page.
@@ -470,6 +475,8 @@ def get_mols_from_cids(
         cids = [cids]
     if filename is None:
         filename = f"sdffrompubchem_temp_{index}.sdf"
+    # Use "wb" for the first chunk so any stale file is always overwritten.
+    mode = "wb"
     for ccids in get_chunks(cids, max_query):
         fcid = ",".join(str(x) for x in ccids)
         url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{fcid}/SDF"
@@ -479,14 +486,23 @@ def get_mols_from_cids(
             raise PubchemInputError(
                 "get_mols_from_cids: received an error from server"
             )
-        with open(filename, "ab") as f:
+        with open(filename, mode) as f:
             f.write(data)
+        mode = "ab"  # append subsequent chunks
     try:
         suppl = Chem.SDMolSupplier(filename, sanitize=True, removeHs=False)
-        return suppl, filename
+        # Read into list immediately so the file handle is released before
+        # deletion — necessary on Windows where open files cannot be removed.
+        mols = list(suppl)
     except Exception as e:  # pylint: disable=broad-except
         logger.info("get_mols_from_cids error for index %s: %s", index, e)
-        return [], ""
+        mols = []
+    finally:
+        try:
+            os.remove(filename)
+        except (FileNotFoundError, PermissionError):
+            pass
+    return mols, filename
 
 
 def get_mols_from_sids(
@@ -508,7 +524,7 @@ def get_mols_from_sids(
         filename: Path for the output SDF file.
 
     Returns:
-        A tuple ``(supplier, filename)`` — see :func:`get_mols_from_cids`.
+        A tuple ``(mols, filename)`` — see :func:`get_mols_from_cids`.
 
     Raises:
         PubchemInputError: If the server returns an XML error page.
@@ -517,6 +533,7 @@ def get_mols_from_sids(
         sids = [sids]
     if filename is None:
         filename = f"sdffrompubchem_temp_{index}.sdf"
+    mode = "wb"
     for ssids in get_chunks(sids, max_query):
         fsid = ",".join(str(x) for x in ssids)
         url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/sid/{fsid}/SDF"
@@ -526,14 +543,21 @@ def get_mols_from_sids(
             raise PubchemInputError(
                 "get_mols_from_sids: received an error from server"
             )
-        with open(filename, "ab") as f:
+        with open(filename, mode) as f:
             f.write(data)
+        mode = "ab"
     try:
         suppl = Chem.SDMolSupplier(filename, sanitize=True, removeHs=False)
-        return suppl, filename
+        mols = list(suppl)
     except Exception as e:  # pylint: disable=broad-except
         logger.info("get_mols_from_sids error for index %s: %s", index, e)
-        return [], ""
+        mols = []
+    finally:
+        try:
+            os.remove(filename)
+        except (FileNotFoundError, PermissionError):
+            pass
+    return mols, filename
 
 def cids_to_mol(
     cids: Union[list, int],
@@ -577,7 +601,7 @@ def get_cids_from_smiles(smiles: str) -> Union[list, None]:
 def synonyms_to_mols(
     cas: Union[list, str],
     save: Union[str, None] = None,
-    max_cids: Union[int, None] = None,
+    max_cids: Union[int, None] = 1,
 ) -> dict:
     """Fetch RDKit molecules for synonym(s) or other identifiers.
 
@@ -585,17 +609,23 @@ def synonyms_to_mols(
     corresponding SDF, sets the ``"CAS"`` property on every molecule,
     and returns a dict keyed by synonym.
 
+    PubChem’s ``/compound/name/`` endpoint is a broad synonym search
+    that returns every compound which lists the query string anywhere
+    in its synonym list — this includes salts, stereoisomers, and
+    mixtures that share the annotation.  The first (highest-ranked)
+    result is the canonical compound that directly corresponds to a
+    CAS number or DTXSID, so ``max_cids=1`` is the correct default
+    for identifier-based lookups.
+
     Args:
-        synonyms: Single synonym string (CAS, DTXSID, …) or list of
+        cas: Single synonym string (CAS, DTXSID, …) or list of
             synonym strings.
         save: If provided, the synonym→CID mapping is saved to
             ``<save>_cas_cids.json`` before fetching structures.
-        max_cids: Maximum number of CIDs to fetch per synonym.  When
-            set to ``1`` only the canonical/preferred CID
-            returned by PubChem is used, which prevents hundreds of
-            stereoisomers or salt forms from being returned for a
-            single DTXSID or CAS number.  Set to ``None`` (default) to fetch
-            all matching CIDs.
+        max_cids: Number of PubChem CIDs to fetch per synonym.
+            The default ``1`` returns the canonical compound.
+            Set to ``None`` to fetch every CID that lists the
+            synonym (may return hundreds for broad identifiers).
 
     Returns:
         Dict mapping each synonym to a list of
@@ -623,16 +653,14 @@ def synonyms_to_mols(
             pass
     return mols
 
-def cas_to_mols(cas: Union[list, str], max_cids: Union[int, None] = None) -> dict:
+def cas_to_mols(cas: Union[list, str], max_cids: Union[int, None] = 1) -> dict:
     """Fetch RDKit molecules for CAS number(s) via PubChem.
-_
+
     Args:
         cas: Single CAS string or list of CAS strings.
-        max_cids: Maximum number of CIDs to fetch per CAS.  When set
-            to ``1``, only the canonical/preferred CID returned by
-            PubChem is used, which prevents hundreds of stereoisomers
-            or salt forms from being returned for a single CAS number.
-            Set to ``None`` (default) to fetch all matching CIDs.
+        max_cids: Number of CIDs to fetch per CAS number.  Defaults
+            to ``1`` (the canonical compound).  Set to ``None`` to
+            fetch all CIDs that list the CAS as a synonym.
     """
     return synonyms_to_mols(cas, max_cids=max_cids)
 
@@ -831,7 +859,7 @@ def synonyms_to_smiles(
         if not synonym:
             continue
         try:
-            mols_dict = cas_to_mols(synonym)
+            mols_dict = cas_to_mols(synonym, max_cids=max_cids)
             if synonym not in mols_dict:
                 failed.append(synonym)
                 processed[synonym] = None
@@ -876,6 +904,7 @@ def cas_to_smiles(
     cas_list: list,
     unique: bool = True,
     join_smiles: bool = True,
+    max_cids: Union[int, None] = 1,
 ) -> tuple[dict, list]:
     """Convert CAS numbers to SMILES strings.
 
@@ -884,18 +913,20 @@ def cas_to_smiles(
     Args:
         cas_list: List of CAS numbers.
         unique: Deduplicate structures by InChIKey.
-        join_smiles: Join multiple SMILES per CAS with ``"."``.
+        join_smiles: Join multiple SMILES per CAS with ``"."`".
+        max_cids: Maximum number of CIDs per CAS (default ``1``).
 
     Returns:
         ``(processed, failed)`` — see :func:`synonyms_to_smiles`.
     """
-    return synonyms_to_smiles(cas_list, unique=unique, join_smiles=join_smiles)
+    return synonyms_to_smiles(cas_list, unique=unique, join_smiles=join_smiles, max_cids=max_cids)
 
 
 def dtxsid_to_smiles(
     dtxsid_list: list,
     unique: bool = True,
     join_smiles: bool = True,
+    max_cids: Union[int, None] = 1,
 ) -> tuple[dict, list]:
     """Convert DTXSID identifiers (or any PubChem synonyms) to SMILES.
 
@@ -904,18 +935,24 @@ def dtxsid_to_smiles(
     Args:
         dtxsid_list: List of DTXSID strings.
         unique: Deduplicate structures by InChIKey.
-        join_smiles: Join multiple SMILES per DTXSID with ``"."``.
+        join_smiles: Join multiple SMILES per DTXSID with ``"."`".
+        max_cids: Maximum number of CIDs per DTXSID (default ``1``).
 
     Returns:
         ``(processed, failed)`` — see :func:`synonyms_to_smiles`.
     """
-    return synonyms_to_smiles(dtxsid_list, unique=unique, join_smiles=join_smiles)
+    return synonyms_to_smiles(dtxsid_list, unique=unique, join_smiles=join_smiles, max_cids=max_cids)
 
-def dtxsid_to_mols(dtxsid_list: list) -> tuple[dict, list]:
+def dtxsid_to_mols(
+    dtxsid_list: list,
+    max_cids: Union[int, None] = 1,
+) -> tuple[dict, list]:
     """Convert DTXSID identifiers to RDKit molecules.
 
     Args:
         dtxsid_list: List of DTXSID strings.
+        max_cids: Maximum number of CIDs to fetch per DTXSID
+            (default ``1`` for the canonical compound).
 
     Returns:
         A tuple ``(processed, failed)`` where *processed* maps each
@@ -929,7 +966,7 @@ def dtxsid_to_mols(dtxsid_list: list) -> tuple[dict, list]:
         if not dtxsid:
             continue
         try:
-            mols_dict = cas_to_mols(dtxsid)
+            mols_dict = cas_to_mols(dtxsid, max_cids=max_cids)
             if dtxsid not in mols_dict:
                 failed.append(dtxsid)
                 processed[dtxsid] = None

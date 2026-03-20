@@ -17,7 +17,7 @@ from pubchem import (
     cas_to_cid,
     cas_to_inchi,
     cas_to_pubchem,
-    synonym_to_pubchem,
+    synonyms_to_pubchem,
     cas_to_sid,
     cids_to_cas_and_einecs_and_dtx,
     format_cas,
@@ -51,7 +51,7 @@ def test_public_api_exported():
         "cas_to_cid",
         "cas_to_sid",
         "cas_to_pubchem",
-        "synonym_to_pubchem",
+        "synonyms_to_pubchem",
         "inchikey_to_pubchem",
         "cas_to_inchi",
         "cids_to_cas_and_einecs_and_dtx",
@@ -366,7 +366,7 @@ def test_pubchem_input_error_is_attribute_error():
 
 
 # ---------------------------------------------------------------------------
-# synonym_to_pubchem (replaces cas_to_pubchem)
+# synonyms_to_pubchem (replaces cas_to_pubchem)
 # ---------------------------------------------------------------------------
 
 
@@ -376,17 +376,17 @@ class TestSynonymToPubchem:
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962]}}
         )
-        mapping, failed = synonym_to_pubchem("7732-18-5", substance=False)
+        mapping, failed = synonyms_to_pubchem("7732-18-5", substance=False)
         assert mapping == {"7732-18-5": [962]}
         assert failed == []
 
     def test_cas_to_pubchem_is_alias(self):
-        """cas_to_pubchem must be the same callable as synonym_to_pubchem."""
-        assert cas_to_pubchem is synonym_to_pubchem
+        """cas_to_pubchem must be the same callable as synonyms_to_pubchem."""
+        assert cas_to_pubchem is synonyms_to_pubchem
 
 
 # ---------------------------------------------------------------------------
-# synonym_to_smiles — string-input guard
+# synonyms_to_smiles — string-input guard
 # ---------------------------------------------------------------------------
 
 
@@ -397,8 +397,8 @@ class TestSynonymToSmiles:
         mock_req.return_value = _json_bytes(
             {"Fault": {"Code": "PUGREST.NotFound"}}
         )
-        from pubchem import synonym_to_smiles  # noqa: PLC0415
-        processed, failed = synonym_to_smiles("7732-18-5")
+        from pubchem import synonyms_to_smiles  # noqa: PLC0415
+        processed, failed = synonyms_to_smiles("7732-18-5")
         # Should have been treated as one synonym, not 8 characters.
         assert list(processed.keys()) == ["7732-18-5"]
         assert failed == ["7732-18-5"]
