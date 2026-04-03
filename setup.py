@@ -1,4 +1,3 @@
-# setup.py
+from setuptools import setup
 
-# This file is intentionally empty.
-# All build configuration is in pyproject.toml.
+setup()
