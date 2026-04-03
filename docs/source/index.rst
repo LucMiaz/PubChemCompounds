@@ -1,15 +1,16 @@
-pubchem
-=======
+pubchem-compounds
+=================
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
    installation
+   examples
    api
    changelog
 
-.. automodule:: pubchem
+.. automodule:: pubchem_compounds
    :members:
 
 

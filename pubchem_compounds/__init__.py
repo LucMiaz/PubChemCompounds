@@ -1,17 +1,17 @@
-"""PubChem REST API wrapper.
+"""pubchem_compounds — PubChem PUG REST API wrapper.
 
 Public API
 ----------
-All symbols listed in ``pubchem.pubchem.__all__`` are re-exported at
-the package level for convenience::
+All symbols listed in ``pubchem_compounds.pubchem_compounds.__all__`` are
+re-exported at the package level for convenience::
 
-    from pubchem import cas_to_cid, cid_to_cas, get_from_cids
+    from pubchem_compounds import cas_to_cid, cid_to_cas, get_from_cids
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from .throttle import safe_request
-from .pubchem import (
+from .pubchem_compounds import (
     PubchemInputError,
     format_cas,
     cas_to_cid,

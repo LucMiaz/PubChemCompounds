@@ -10,12 +10,12 @@ sys.path.insert(0, os.path.abspath("../.."))
 
 # -- Project information -----------------------------------------------------
 
-project = "pubchem"
-copyright = "2024, Luc Miaz"
+project = "pubchem-compounds"
+copyright = "2024–2026, Luc Miaz"
 author = "Luc Miaz"
 
 # Dynamically read the version from the package rather than hard-coding it.
-from pubchem import __version__  # noqa: E402
+from pubchem_compounds import __version__  # noqa: E402
 
 version = __version__
 release = __version__

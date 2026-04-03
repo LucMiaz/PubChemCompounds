@@ -1,93 +1,152 @@
-# Pubchem
+# pubchem-compounds
 
+[![PyPI](https://img.shields.io/pypi/v/pubchem-compounds)](https://pypi.org/project/pubchem-compounds/)
+[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+[![Docs](https://readthedocs.org/projects/pubchem-compounds/badge/?version=latest)](https://pubchem-compounds.readthedocs.io)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
 
+A Python wrapper for the [PubChem PUG REST API](https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest),
+focused on Compounds and Substances. It provides:
 
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/lucmiaz/pubchem.git
-git branch -M main
-git push -uf origin main
-```
-
-## Integrate with your tools
-
-- [ ] [Set up project integrations](https://gitlab.com/lucmiaz/pubchem/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+- Identifier conversion: **CAS → CID / SID**, **InChIKey → CID**, **SMILES → CID**, **CID → CAS / EINECS / DTXSID**
+- **Batch property fetching** from lists of CIDs
+- **SDF / RDKit mol retrieval** for CIDs, SIDs, or CAS numbers
+- **SMILES and InChI** extraction for any PubChem synonym
+- **PFAS classification tree** node queries
+- **Built-in rate limiting** (max 5 req/s, 400 req/min) and automatic retry on HTTP 403
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### From PyPI
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```bash
+pip install pubchem-compounds
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+> **Note:** RDKit is required only for functions that return molecules
+> (`get_mols_from_cids`, `cas_to_mols`, `synonyms_to_smiles`, etc.).
+> Install it separately:
+>
+> ```bash
+> pip install rdkit          # rdkit ≥ 2023.03
+> # or via conda:
+> conda install -c conda-forge rdkit
+> ```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+### From source
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+```bash
+git clone https://gitlab.com/lucmiaz/pubchem.git
+cd pubchem
+pip install -e .
+```
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Install with optional dependencies:
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```bash
+pip install -e ".[dev]"   # pytest, pylint
+pip install -e ".[docs]"  # sphinx, sphinx-rtd-theme
+```
 
-## License
-For open source projects, say how it is licensed.
+## Quick start
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```python
+import pubchem_compounds as pc
+```
+
+### CAS → CID
+
+```python
+mapping, failed = pc.cas_to_cid("7732-18-5")  # water
+print(mapping)   # {'7732-18-5': [962]}
+```
+
+### Batch CAS lookup
+
+```python
+cas_list = ["7732-18-5", "74-82-8", "71-43-2"]
+mapping, failed = pc.cas_to_cid(cas_list)
+# {'7732-18-5': [962], '74-82-8': [297], '71-43-2': [241]}
+```
+
+### CAS → SMILES
+
+```python
+processed, failed = pc.cas_to_smiles(["7732-18-5", "74-82-8"])
+print(processed["7732-18-5"])  # 'O'
+print(processed["74-82-8"])    # 'C'
+```
+
+### CAS → RDKit molecules
+
+```python
+mols = pc.cas_to_mols(["7732-18-5", "74-82-8"])
+for cas, mol_list in mols.items():
+    for mol in mol_list:
+        print(cas, mol.GetNumAtoms())
+```
+
+### Fetch compound properties for a list of CIDs
+
+```python
+data = pc.get_from_cids([962, 297, 241], target="property/MolecularFormula,MolecularWeight")
+for prop in data["PropertyTable"]["Properties"]:
+    print(prop["CID"], prop["MolecularFormula"], prop["MolecularWeight"])
+```
+
+### CID → CAS (reverse lookup)
+
+```python
+cas_list = pc.cid_to_cas(962)
+print(cas_list)  # ['7732-18-5']
+```
+
+### InChIKey → CID
+
+```python
+cids = pc.inchikey_to_pubchem("XLYOFNOQVPJJNP-UHFFFAOYSA-N")
+print(cids)  # [962]
+```
+
+### DTXSID → SMILES
+
+```python
+processed, failed = pc.dtxsid_to_smiles(["DTXSID9020584"])
+print(processed["DTXSID9020584"])
+```
+
+### PFAS classification tree
+
+```python
+# Fetch all CIDs from the OECD PFAS list node (default hnid = 5517102)
+cids = pc.pubchem_pfas_tree()
+print(f"{len(cids)} PFAS CIDs found")
+```
+
+For a full API reference and more examples, see the
+[documentation](https://pubchem-compounds.readthedocs.io).
+
+## Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `requests` | HTTP requests |
+| `numpy` | Rate-limiting random intervals |
+| `regex` | CAS / EINECS / DTXSID pattern matching |
+| `tqdm` | Progress bars for batch operations |
+| `rdkit` *(optional)* | SDF parsing and mol/SMILES generation |
+
+## Licence
+
+Copyright © 2024–2026 Luc T. Miaz.  
+Licensed under the [Creative Commons Attribution-NonCommercial 4.0 International](https://creativecommons.org/licenses/by-nc/4.0/) (CC BY-NC 4.0) licence.
+
+## Acknowledgments
+
+Developed under the [ZeroPM project](https://zeropm.eu) (WP2) funded by the
+European Union's Horizon 2020 research and innovation programme
+(grant agreement No 101036756).
+Developed at the Department of Environmental Science, Stockholm University.
+
+[![Powered by RDKit](https://img.shields.io/badge/Powered%20by-RDKit-3838ff.svg)](https://www.rdkit.org/)
+

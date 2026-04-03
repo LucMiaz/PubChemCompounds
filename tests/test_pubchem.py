@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import pubchem
-from pubchem import (
+import pubchem_compounds as pubchem
+from pubchem_compounds import (
     PubchemInputError,
     cas_to_cid,
     cas_to_inchi,
@@ -120,7 +120,7 @@ class TestGetChunks:
 
 
 class TestSingleSynonymToPubchem:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_returns_cids(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962]}}
@@ -128,7 +128,7 @@ class TestSingleSynonymToPubchem:
         result = single_synonym_to_pubchem("7732-18-5", substance=False)
         assert result == [962]
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_returns_sids(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"SID": [12345]}}
@@ -136,14 +136,14 @@ class TestSingleSynonymToPubchem:
         result = single_synonym_to_pubchem("7732-18-5", substance=True)
         assert result == [12345]
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_fault_returns_none(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"Fault": {"Code": "PUGREST.NotFound", "Message": "No CID found"}}
         )
         assert single_synonym_to_pubchem("INVALIDCAS") is None
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_invalid_json_returns_none(self, mock_req):
         mock_req.return_value = b"not json"
         assert single_synonym_to_pubchem("7732-18-5") is None
@@ -155,7 +155,7 @@ class TestSingleSynonymToPubchem:
 
 
 class TestCasToPubchem:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_single_cas_cid(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962]}}
@@ -164,7 +164,7 @@ class TestCasToPubchem:
         assert mapping == {"7732-18-5": [962]}
         assert failed == []
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_multiple_cas(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962]}}
@@ -173,7 +173,7 @@ class TestCasToPubchem:
         assert set(mapping.keys()) == {"7732-18-5", "74-82-8"}
         assert failed == []
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_failed_cas(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"Fault": {"Code": "PUGREST.NotFound"}}
@@ -187,7 +187,7 @@ class TestCasToPubchem:
         assert mapping == {}
         assert failed == []
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_cas_to_cid_wrapper(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962]}}
@@ -195,7 +195,7 @@ class TestCasToPubchem:
         mapping, failed = cas_to_cid("7732-18-5")
         assert "7732-18-5" in mapping
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_cas_to_sid_wrapper(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"SID": [12345]}}
@@ -210,7 +210,7 @@ class TestCasToPubchem:
 
 
 class TestInchikeyToPubchem:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_returns_cids(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962]}}
@@ -218,7 +218,7 @@ class TestInchikeyToPubchem:
         result = inchikey_to_pubchem("XLYOFNOQVPJJNP-UHFFFAOYSA-N")
         assert result == [962]
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_fault_returns_none(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"Fault": {"Code": "PUGREST.NotFound"}}
@@ -232,7 +232,7 @@ class TestInchikeyToPubchem:
 
 
 class TestSmilesToPubchem:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_simple_smiles(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962]}}
@@ -240,7 +240,7 @@ class TestSmilesToPubchem:
         result = SMILES_to_pubchem("O")
         assert result == [962]
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_hash_encoding(self, mock_req):
         """The # character should be encoded as %23 in the URL."""
         mock_req.return_value = _json_bytes({"IdentifierList": {"CID": [1]}})
@@ -249,7 +249,7 @@ class TestSmilesToPubchem:
         assert "%23" in called_url
         assert "#" not in called_url
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_fault_returns_none(self, mock_req):
         mock_req.return_value = _json_bytes({"Fault": {"Code": "PUGREST.NotFound"}})
         assert SMILES_to_pubchem("INVALID") is None
@@ -261,7 +261,7 @@ class TestSmilesToPubchem:
 
 
 class TestGetFromCids:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_single_cid(self, mock_req):
         payload = {"PropertyTable": {"Properties": [{"CID": 962, "InChI": "InChI=1S/H2O/h1H2"}]}}
         mock_req.return_value = _json_bytes(payload)
@@ -269,7 +269,7 @@ class TestGetFromCids:
         assert result is not None
         assert result["PropertyTable"]["Properties"][0]["InChI"] == "InChI=1S/H2O/h1H2"
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_invalid_json_returns_none(self, mock_req):
         mock_req.return_value = b"not json"
         result = get_from_cids([1, 2], target="synonyms")
@@ -282,7 +282,7 @@ class TestGetFromCids:
 
 
 class TestGetCidsFromSids:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_single_sid(self, mock_req):
         payload = {
             "InformationList": {
@@ -293,7 +293,7 @@ class TestGetCidsFromSids:
         result = get_cids_from_sids(12345)
         assert result == {12345: 962}
 
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_multiple_sids(self, mock_req):
         payload = {
             "InformationList": {
@@ -314,7 +314,7 @@ class TestGetCidsFromSids:
 
 
 class TestCasToInchi:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_basic_conversion(self, mock_req):
         cid_response = _json_bytes({"IdentifierList": {"CID": [962]}})
         inchi_response = _json_bytes({
@@ -335,7 +335,7 @@ class TestCasToInchi:
 
 
 class TestCidsToCasAndEinecs:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_extracts_cas(self, mock_req):
         payload = {
             "InformationList": {
@@ -371,7 +371,7 @@ def test_pubchem_input_error_is_attribute_error():
 
 
 class TestSynonymToPubchem:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_single_synonym_cid(self, mock_req):
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962]}}
@@ -391,13 +391,13 @@ class TestSynonymToPubchem:
 
 
 class TestSynonymToSmiles:
-    @patch("pubchem.pubchem.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
     def test_bare_string_not_iterated_as_chars(self, mock_req):
         """Passing a string (not a list) must NOT iterate over characters."""
         mock_req.return_value = _json_bytes(
             {"Fault": {"Code": "PUGREST.NotFound"}}
         )
-        from pubchem import synonyms_to_smiles  # noqa: PLC0415
+        from pubchem_compounds import synonyms_to_smiles  # noqa: PLC0415
         processed, failed = synonyms_to_smiles("7732-18-5")
         # Should have been treated as one synonym, not 8 characters.
         assert list(processed.keys()) == ["7732-18-5"]
@@ -410,32 +410,33 @@ class TestSynonymToSmiles:
 
 
 class TestCasToMols:
-    @patch("pubchem.pubchem.safe_request")
-    @patch("pubchem.pubchem.get_mols_from_cids")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.get_mols_from_cids")
     def test_max_cids_1_sends_single_cid(self, mock_get_mols, mock_req):
         """With max_cids=1, only the first CID is passed to get_mols_from_cids."""
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962, 11234, 56789]}}
         )
         mock_get_mols.return_value = ([], "tmp.sdf")
-        from pubchem import cas_to_mols  # noqa: PLC0415
+        from pubchem_compounds import cas_to_mols  # noqa: PLC0415
         import os  # noqa: PLC0415
-        with patch("pubchem.pubchem.os.remove"):
+        with patch("pubchem_compounds.pubchem_compounds.os.remove"):
             cas_to_mols("7732-18-5", max_cids=1)
         # get_mols_from_cids must have been called with only 1 CID
         called_cids = mock_get_mols.call_args[0][0]
         assert called_cids == [962]
 
-    @patch("pubchem.pubchem.safe_request")
-    @patch("pubchem.pubchem.get_mols_from_cids")
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
+    @patch("pubchem_compounds.pubchem_compounds.get_mols_from_cids")
     def test_max_cids_none_passes_all(self, mock_get_mols, mock_req):
         """With max_cids=None, all CIDs are forwarded."""
         mock_req.return_value = _json_bytes(
             {"IdentifierList": {"CID": [962, 11234, 56789]}}
         )
         mock_get_mols.return_value = ([], "tmp.sdf")
-        from pubchem import cas_to_mols  # noqa: PLC0415
-        with patch("pubchem.pubchem.os.remove"):
+        from pubchem_compounds import cas_to_mols  # noqa: PLC0415
+        with patch("pubchem_compounds.pubchem_compounds.os.remove"):
             cas_to_mols("7732-18-5", max_cids=None)
         called_cids = mock_get_mols.call_args[0][0]
         assert called_cids == [962, 11234, 56789]
+

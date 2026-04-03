@@ -1,7 +1,7 @@
 API Reference
 =============
 
-.. currentmodule:: pubchem
+.. currentmodule:: pubchem_compounds
 
 Core lookup functions
 ---------------------
@@ -28,7 +28,7 @@ InChI / SMILES conversion
 .. autofunction:: cas_to_inchi
 .. autofunction:: cas_to_smiles
 .. autofunction:: dtxsid_to_smiles
-.. autofunction:: synonym_to_smiles
+.. autofunction:: synonyms_to_smiles
 
 Mol / SDF retrieval
 -------------------
@@ -37,6 +37,8 @@ Mol / SDF retrieval
 .. autofunction:: get_mols_from_sids
 .. autofunction:: get_mols_from_cas
 .. autofunction:: cas_to_mols
+.. autofunction:: synonyms_to_mols
+.. autofunction:: dtxsid_to_mols
 .. autofunction:: cids_to_mol
 .. autofunction:: get_cids_from_smiles
 
@@ -66,5 +68,5 @@ Throttle / request utilities
 -----------------------------
 
 .. autofunction:: safe_request
-.. autoclass:: pubchem.throttle.metered_request_decorator
+.. autoclass:: pubchem_compounds.throttle.metered_request_decorator
    :members:

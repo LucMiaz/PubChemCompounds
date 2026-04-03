@@ -1,5 +1,5 @@
 """
-PubChem REST API wrapper utilities.
+pubchem_compounds.pubchem_compounds — PubChem REST API utilities.
 
 Provides functions to query the PubChem PUG REST API for compound and
 substance information: CID/SID lookups by CAS, InChIKey or SMILES,
@@ -16,7 +16,6 @@ from tqdm import tqdm
 import logging
 from rdkit import Chem
 from rdkit import rdBase
-import pandas as pd
 from .throttle import safe_request
 
 logger = logging.getLogger(__name__)
@@ -143,9 +142,6 @@ def inchikey_to_pubchem(inchikey: str) -> Union[list, None]:
         return None
     return data.get("IdentifierList", {}).get("CID", None)
 
-
-# backward-compatible alias
-cas_to_pubchem = None  # defined after synonyms_to_pubchem below
 
 
 def synonyms_to_pubchem(synonym: Union[str, list], substance: bool) -> tuple[dict, list]:
@@ -823,6 +819,7 @@ def synonyms_to_smiles(
     synonym_list: Union[list, str],
     unique: bool = True,
     join_smiles: bool = True,
+    max_cids: Union[int, None] = 1,
 ) -> tuple[dict, list]:
     """Convert a list of synonyms (CAS, DTXSID, …) to SMILES strings.
 
@@ -838,11 +835,15 @@ def synonyms_to_smiles(
 
     Args:
         synonym_list: Synonym or list of synonyms to resolve (CAS
-            numbers, DTXSIDs, compound names, …).  A bare string is
+            numbers, DTXSIDs, compound names, \u2026).  A bare string is
             treated as a single-element list.
         unique: Deduplicate structures by InChIKey.
-        join_smiles: If ``True``, join multiple SMILES with ``"."``
+        join_smiles: If ``True``, join multiple SMILES with ``"."`
             into a single string; otherwise return a list.
+        max_cids: Maximum number of CIDs to fetch per synonym.
+            Defaults to ``1`` (canonical compound).  Use ``None`` to
+            fetch every CID that annotates the synonym (may return
+            many results for broad identifiers such as trivial names).
 
     Returns:
         A tuple ``(processed, failed)`` where *processed* maps each

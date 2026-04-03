@@ -1,28 +1,29 @@
-# pyproject.toml
-
 [build-system]
 requires      = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pubchem"
-version = "1.0.0"
-description = "Python wrapper for the PubChem PUG REST API"
+name = "pubchem-compounds"
+version = "1.1.0"
+description = "A Python wrapper for the PubChem PUG REST API. Provides convenient methods to retrieve chemical information using CIDs, SIDs, CAS numbers, SMILES, and InChIKeys, and to convert between chemical identifiers. Built-in rate limiting and retry logic; RDKit integration for SDF/mol retrieval."
 readme = "README.md"
+license = { file = "LICENSE" }
 authors = [{ name = "Luc Miaz", email = "luc@miaz.ch" }]
 classifiers = [
-    "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
     "Programming Language :: Python",
-    "Natural Language :: English",
-    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Natural Language :: English",
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 
-keywords = ["pubchem", "chemistry", "cas", "cid", "rdkit"]
+keywords = ["PubChem", "chemistry", "cas", "cid", "rdkit", "cheminformatics", "PFAS"]
 
 dependencies = [
     "requests",
@@ -31,6 +32,12 @@ dependencies = [
     "tqdm>=4.65.0",
 ]
 requires-python = ">=3.9"
+
+[project.urls]
+Homepage      = "https://gitlab.com/lucmiaz/pubchem"
+Documentation = "https://pubchem-compounds.readthedocs.io"
+Repository    = "https://gitlab.com/lucmiaz/pubchem.git"
+Changelog     = "https://pubchem-compounds.readthedocs.io/en/latest/changelog.html"
 
 [project.optional-dependencies]
 dev = [
@@ -43,6 +50,10 @@ docs = [
     "sphinx-rtd-theme",
     "sphinx-autoapi",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pubchem_compounds*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
