@@ -33,13 +33,13 @@ jobs:
 
       - name: Run pylint
         run: |
-          pylint pubchem/ \
+          pylint pubchem_compounds/ \
             --disable=C0114,C0115,C0116,R0903,W0212,W0611 \
             --fail-under=7.0
 
       - name: Run pytest with coverage
         run: |
-          pytest tests/ -v --tb=short --cov=pubchem --cov-report=term-missing
+          pytest tests/ -v --tb=short --cov=pubchem_compounds --cov-report=term-missing
 
   docs:
     name: Build Sphinx docs
