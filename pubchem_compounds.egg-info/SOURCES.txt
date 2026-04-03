@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+pubchem_compounds/__init__.py
+pubchem_compounds/pubchem_compounds.py
+pubchem_compounds/throttle.py
+pubchem_compounds.egg-info/PKG-INFO
+pubchem_compounds.egg-info/SOURCES.txt
+pubchem_compounds.egg-info/dependency_links.txt
+pubchem_compounds.egg-info/requires.txt
+pubchem_compounds.egg-info/top_level.txt
+tests/test_pubchem.py
