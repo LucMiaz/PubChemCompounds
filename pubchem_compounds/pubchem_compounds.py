@@ -14,12 +14,17 @@ import regex as re
 import os
 from tqdm import tqdm
 import logging
-from rdkit import Chem
-from rdkit import rdBase
 from .throttle import safe_request
 
+try:
+    from rdkit import Chem
+    from rdkit import rdBase
+    rdBase.DisableLog('rdApp.warning')
+    _RDKIT_AVAILABLE = True
+except ImportError:  # rdkit is optional
+    _RDKIT_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
-rdBase.DisableLog('rdApp.warning')
 
 __all__ = [
     "PubchemInputError",
@@ -396,7 +401,7 @@ def get_from_cids(
 
 def get_mols_from_cas(
     cas: Union[list, str], substance: bool = False
-) -> Chem.SDMolSupplier:
+):
     """Fetch RDKit molecules for CAS number(s) via PubChem.
 
     Args:
