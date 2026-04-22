@@ -51,9 +51,8 @@ docs = [
     "sphinx-autoapi",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["pubchem_compounds*"]
+[tool.setuptools]
+packages = ["pubchem_compounds"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
