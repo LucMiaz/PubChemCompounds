@@ -843,7 +843,7 @@ def synonyms_to_smiles(
             numbers, DTXSIDs, compound names, \u2026).  A bare string is
             treated as a single-element list.
         unique: Deduplicate structures by InChIKey.
-        join_smiles: If ``True``, join multiple SMILES with ``"."`
+        join_smiles: If ``True``, join multiple SMILES with ``"."``
             into a single string; otherwise return a list.
         max_cids: Maximum number of CIDs to fetch per synonym.
             Defaults to ``1`` (canonical compound).  Use ``None`` to
@@ -919,7 +919,7 @@ def cas_to_smiles(
     Args:
         cas_list: List of CAS numbers.
         unique: Deduplicate structures by InChIKey.
-        join_smiles: Join multiple SMILES per CAS with ``"."`".
+        join_smiles: Join multiple SMILES per CAS with ``"."``.
         max_cids: Maximum number of CIDs per CAS (default ``1``).
 
     Returns:
@@ -941,7 +941,7 @@ def dtxsid_to_smiles(
     Args:
         dtxsid_list: List of DTXSID strings.
         unique: Deduplicate structures by InChIKey.
-        join_smiles: Join multiple SMILES per DTXSID with ``"."`".
+        join_smiles: Join multiple SMILES per DTXSID with ``"."``.
         max_cids: Maximum number of CIDs per DTXSID (default ``1``).
 
     Returns:

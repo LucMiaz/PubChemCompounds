@@ -27,7 +27,6 @@ extensions = [
     "sphinx.ext.napoleon",       # Google/NumPy-style docstrings
     "sphinx.ext.viewcode",       # [source] links
     "sphinx.ext.intersphinx",    # cross-references to Python stdlib
-    "sphinx.ext.autosummary",
 ]
 
 intersphinx_mapping = {
