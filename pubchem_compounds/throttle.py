@@ -19,11 +19,6 @@ class metered_request_decorator:
     interval drawn from a Poisson distribution before retrying.  HTTP
     403 responses are retried once with an additional sleep; after 10
     consecutive 403 errors an exception is raised.
-
-    Attributes:
-        requests_mn: Class-level list tracking timestamps of recent
-            requests (shared across all instances).
-        STATUS_403: Class-level counter for consecutive 403 responses.
     """
 
     requests_mn: list = []
