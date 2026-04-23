@@ -44,10 +44,10 @@ napoleon_google_docstring = True
 napoleon_use_param = True
 napoleon_use_rtype = True
 
-templates_path = ["_templates"]
+templates_path = []
 exclude_patterns = []
 
 # -- Options for HTML output -------------------------------------------------
 
 html_theme = "sphinx_rtd_theme"
-html_static_path = ["_static"]
+html_static_path = []

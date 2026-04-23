@@ -10,9 +10,6 @@ pubchem-compounds
    api
    changelog
 
-.. automodule:: pubchem_compounds
-   :members:
-
 
 Indices and tables
 ==================
