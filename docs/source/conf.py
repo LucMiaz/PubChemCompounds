@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath("../.."))
 # -- Project information -----------------------------------------------------
 
 project = "pubchem-compounds"
-copyright = "2024–2026, Luc Miaz"
+copyright = "2024-2026, Luc Miaz"
 author = "Luc Miaz"
 
 # Dynamically read the version from the package rather than hard-coding it.
