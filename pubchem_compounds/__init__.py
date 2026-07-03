@@ -13,6 +13,7 @@ __version__ = "1.1.0"
 from .throttle import safe_request
 from .pubchem_compounds import (
     PubchemInputError,
+    NoStructureError,
     format_cas,
     cas_to_cid,
     cas_to_sid,
@@ -50,6 +51,7 @@ __all__ = [
     "__version__",
     "safe_request",
     "PubchemInputError",
+    "NoStructureError",
     "format_cas",
     "cas_to_cid",
     "cas_to_sid",

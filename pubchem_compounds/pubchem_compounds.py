@@ -57,11 +57,24 @@ __all__ = [
     "dtxsid_to_mols",
     "mol_from_comptox",
     "mols_from_comptox",
+    "NoStructureError",
 ]
 
 
 class PubchemInputError(AttributeError):
     """Raised when PubChem returns an error response for the given input."""
+
+
+class NoStructureError(PubchemInputError):
+    """Raised when a service has no molecular structure on file for an identifier."""
+
+    def __init__(self, identifier, reason: Union[str, None] = None):
+        self.identifier = identifier
+        self.reason = reason
+        message = f"No structure available for {identifier!r}"
+        if reason:
+            message += f": {reason}"
+        super().__init__(message)
 
 
 def format_cas(_cas: Union[str, list]) -> str:
@@ -1032,7 +1045,9 @@ def mol_from_comptox(dtxsid, _temp_fp = None, sanitize = True, removeHs = False,
         its ``DTXSID`` property set to the resolved identifier.
 
     Raises:
-        Exception: If the request to CompTox fails.
+        NoStructureError: If CompTox has no structure on file for
+            *dtxsid*, or returns content RDKit cannot parse.
+        Exception: If the request to CompTox fails outright.
     """
     if isinstance(dtxsid, int) or isinstance(dtxsid,float):
         dtxsid = f"DTXSID{int(dtxsid)}"
@@ -1042,44 +1057,73 @@ def mol_from_comptox(dtxsid, _temp_fp = None, sanitize = True, removeHs = False,
     except Exception as e:
         print(f"Error with {dtxsid}")
         raise e
+    if not data:
+        raise NoStructureError(dtxsid, reason="CompTox has no structure on file for this DTXSID")
     _temp_fp.write(data.decode('utf-8'))
     _temp_fp.flush()
-    # On Windows, antivirus real-time scanning can transiently hold an
-    # exclusive lock on a just-written file, so a second handle opened
-    # immediately afterwards (here, by RDKit) occasionally fails with
-    # "used by another process". Retry briefly rather than failing the
-    # whole lookup on what's usually a race, not a real error.
+    suppl = None
     for attempt in range(4):
         try:
             suppl = Chem.SDMolSupplier(_temp_fp.name, sanitize=sanitize, removeHs=removeHs)
             break
-        except OSError:
-            if attempt == 3:
-                raise
-            time.sleep(0.2 * (attempt + 1))
-    mol = list(suppl)[0]
+        except OSError as e:
+            # On Windows, antivirus real-time scanning can transiently
+            # hold an exclusive lock on a just-written file, so a second
+            # handle opened immediately afterwards (here, by RDKit)
+            # occasionally fails with "used by another process". Retry
+            # briefly for that specific race; anything else (e.g. RDKit's
+            # "Invalid input file" on malformed/empty content) means the
+            # data itself is bad and retrying won't help.
+            if getattr(e, 'winerror', None) == 32 and attempt < 3:
+                time.sleep(0.2 * (attempt + 1))
+                continue
+            raise NoStructureError(dtxsid, reason=str(e)) from e
+    mols = list(suppl)
+    if not mols:
+        raise NoStructureError(dtxsid, reason="CompTox response had no parseable structure")
+    mol = mols[0]
     mol.SetProp("DTXSID", dtxsid)
     return mol
 
 
-def mols_from_comptox(dtxsids, remove = True, _temp_fp = None, sanitize = True, removeHs=False):
+def mols_from_comptox(dtxsids, remove = True, _temp_fp = None, sanitize = True, removeHs=False, return_missing=False):
     """Fetch RDKit molecules from CompTox for multiple DTXSIDs.
 
-    Calls :func:`mol_from_comptox` once per DTXSID.
+    Calls :func:`mol_from_comptox` once per DTXSID. DTXSIDs with no
+    structure on file at CompTox (:class:`NoStructureError`) are skipped
+    rather than aborting the whole batch; a one-line summary is printed
+    at the end if any were skipped.
 
     Args:
         dtxsids: A single DTXSID string, or a list of DTXSID strings.
         sanitize: Passed through to :func:`mol_from_comptox`.
         removeHs: Passed through to :func:`mol_from_comptox`.
+        return_missing: If ``True``, also return the list of DTXSIDs that
+            had no structure available (default ``False``).
 
     Returns:
-        List of :class:`rdkit.Chem.Mol` objects, in the same order as
-        *dtxsids*.
+        List of :class:`rdkit.Chem.Mol` objects for the resolved
+        DTXSIDs (entries with no structure are omitted, so the result
+        may be shorter than *dtxsids*). If *return_missing* is ``True``,
+        returns a tuple ``(mols, missing)`` instead, where *missing* is
+        the list of DTXSIDs that had no structure.
     """
     if not isinstance(dtxsids, list):
         dtxsids = [dtxsids]
     mols = []
+    missing = []
     for dtxsid in dtxsids:
-        mol = mol_from_comptox(dtxsid, sanitize = sanitize, removeHs = removeHs)
+        try:
+            mol = mol_from_comptox(dtxsid, sanitize = sanitize, removeHs = removeHs)
+        except NoStructureError:
+            missing.append(dtxsid)
+            continue
         mols.append(mol)
+    if missing:
+        shown = ', '.join(missing[:20])
+        if len(missing) > 20:
+            shown += f', … (+{len(missing) - 20} more)'
+        print(f'mols_from_comptox: no structure for {len(missing)}/{len(dtxsids)} DTXSID(s): {shown}')
+    if return_missing:
+        return mols, missing
     return mols

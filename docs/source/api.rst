@@ -65,6 +65,7 @@ Exceptions
 ----------
 
 .. autoexception:: PubchemInputError
+.. autoexception:: NoStructureError
 
 Throttle / request utilities
 -----------------------------
