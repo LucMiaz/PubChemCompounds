@@ -1,1 +1,0 @@
-[01mRunning Sphinx v9.1.0[39;49;00m

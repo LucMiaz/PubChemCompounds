@@ -110,10 +110,20 @@ print(cids)  # [962]
 
 ### DTXSID → SMILES
 
+Via PubChem
+
 ```python
 processed, failed = pc.dtxsid_to_smiles(["DTXSID9020584"])
 print(processed["DTXSID9020584"])
 ```
+
+Via CompTox
+
+```python
+from pubchemcompounds import mols_from_comptox
+mols = mols_from_comptox(["DTXSID4059916"])
+```
+
 
 ### PFAS classification tree
 

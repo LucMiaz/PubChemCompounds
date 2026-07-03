@@ -15,6 +15,8 @@ import os
 from tqdm import tqdm
 import logging
 from .throttle import safe_request
+import tempfile
+import functools
 
 try:
     from rdkit import Chem
@@ -52,6 +54,8 @@ __all__ = [
     "cas_to_smiles",
     "dtxsid_to_smiles",
     "dtxsid_to_mols",
+    "mol_from_comptox",
+    "mols_from_comptox",
 ]
 
 
@@ -984,3 +988,85 @@ def dtxsid_to_mols(
             processed[dtxsid] = None
 
     return processed, failed
+
+def decorate_tempfile(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if kwargs.get('_temp_fp', None) is not None:
+            return func(*args, **kwargs)
+        # These are decorator-only options: pop them so they aren't also
+        # forwarded to func (which may not accept them as kwargs).
+        suffix = kwargs.pop('_suffix', '.sdf')
+        mode = kwargs.pop('_mode', 'w')
+        # On Windows, a file opened with delete_on_close=True cannot be
+        # reopened by path (e.g. by Chem.SDMolSupplier) while still held
+        # open here; delete_on_close=False keeps it shareable until the
+        # `with` block exits.
+        delete_on_close = kwargs.pop('delete_on_close', False)
+        with tempfile.NamedTemporaryFile(delete_on_close=delete_on_close, suffix=suffix, mode=mode) as fp:
+            kwargs['_temp_fp'] = fp
+            return func(*args, **kwargs)
+    return wrapper
+
+
+@decorate_tempfile
+def mol_from_comptox(dtxsid, _temp_fp = None, sanitize = True, removeHs = False, **kwargs):
+    """Fetch an RDKit molecule from the EPA CompTox Dashboard for a DTXSID.
+
+    Downloads the mol block served by CompTox's chemical-files endpoint
+    and parses it with :class:`rdkit.Chem.SDMolSupplier`. Decorated with
+    :func:`decorate_tempfile`, which creates the backing temp file used
+    to hand the downloaded data to RDKit; callers do not need to pass
+    ``_temp_fp`` themselves.
+
+    Args:
+        dtxsid: DTXSID string (e.g. ``"DTXSID4059916"``), or a bare
+            numeric identifier (``int``/``float``) that will be
+            formatted as ``DTXSID{n}``.
+        sanitize: Passed through to :class:`rdkit.Chem.SDMolSupplier`.
+        removeHs: Passed through to :class:`rdkit.Chem.SDMolSupplier`.
+
+    Returns:
+        The first :class:`rdkit.Chem.Mol` parsed from the response, with
+        its ``DTXSID`` property set to the resolved identifier.
+
+    Raises:
+        Exception: If the request to CompTox fails.
+    """
+    if isinstance(dtxsid, int) or isinstance(dtxsid,float):
+        dtxsid = f"DTXSID{int(dtxsid)}"
+    url = f"https://comptox.epa.gov/dashboard-api/ccdapp1/chemical-files/mol/by-dtxsid/{dtxsid}"
+    try:
+        data = safe_request(url)
+    except Exception as e:
+        print(f"Error with {dtxsid}")
+        raise e
+    _temp_fp.write(data.decode('utf-8'))
+    _temp_fp.flush()
+    suppl = Chem.SDMolSupplier(_temp_fp.name, sanitize=sanitize, removeHs=removeHs)
+    mol = list(suppl)[0]
+    mol.SetProp("DTXSID", dtxsid)
+    return mol
+
+
+def mols_from_comptox(dtxsids, remove = True, _temp_fp = None, sanitize = True, removeHs=False):
+    """Fetch RDKit molecules from CompTox for multiple DTXSIDs.
+
+    Calls :func:`mol_from_comptox` once per DTXSID.
+
+    Args:
+        dtxsids: A single DTXSID string, or a list of DTXSID strings.
+        sanitize: Passed through to :func:`mol_from_comptox`.
+        removeHs: Passed through to :func:`mol_from_comptox`.
+
+    Returns:
+        List of :class:`rdkit.Chem.Mol` objects, in the same order as
+        *dtxsids*.
+    """
+    if not isinstance(dtxsids, list):
+        dtxsids = [dtxsids]
+    mols = []
+    for dtxsid in dtxsids:
+        mol = mol_from_comptox(dtxsid, sanitize = sanitize, removeHs = removeHs)
+        mols.append(mol)
+    return mols

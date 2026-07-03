@@ -41,6 +41,8 @@ Mol / SDF retrieval
 .. autofunction:: dtxsid_to_mols
 .. autofunction:: cids_to_mol
 .. autofunction:: get_cids_from_smiles
+.. autofunction:: mol_from_comptox
+.. autofunction:: mols_from_comptox
 
 SID utilities
 -------------
