@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pubchem-compounds"
-version = "1.1.1"
+version = "1.1.2"
 description = "A Python wrapper for the PubChem PUG REST API. Provides convenient methods to retrieve chemical information using CIDs, SIDs, CAS numbers, SMILES, and InChIKeys, and to convert between chemical identifiers. Built-in rate limiting and retry logic; RDKit integration for SDF/mol retrieval."
 readme = "README.md"
 license = { file = "LICENSE" }
