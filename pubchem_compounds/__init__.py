@@ -42,6 +42,8 @@ from .pubchem_compounds import (
     dtxsid_to_mols,
     cas_to_smiles,
     dtxsid_to_smiles,
+    mol_from_comptox,
+    mols_from_comptox,
 )
 
 __all__ = [
@@ -77,4 +79,6 @@ __all__ = [
     "cas_to_smiles",
     "dtxsid_to_mols",
     "dtxsid_to_smiles",
+    "mol_from_comptox",
+    "mols_from_comptox",
 ]

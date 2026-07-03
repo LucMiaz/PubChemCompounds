@@ -17,6 +17,7 @@ import logging
 from .throttle import safe_request
 import tempfile
 import functools
+import time
 
 try:
     from rdkit import Chem
@@ -1043,7 +1044,19 @@ def mol_from_comptox(dtxsid, _temp_fp = None, sanitize = True, removeHs = False,
         raise e
     _temp_fp.write(data.decode('utf-8'))
     _temp_fp.flush()
-    suppl = Chem.SDMolSupplier(_temp_fp.name, sanitize=sanitize, removeHs=removeHs)
+    # On Windows, antivirus real-time scanning can transiently hold an
+    # exclusive lock on a just-written file, so a second handle opened
+    # immediately afterwards (here, by RDKit) occasionally fails with
+    # "used by another process". Retry briefly rather than failing the
+    # whole lookup on what's usually a race, not a real error.
+    for attempt in range(4):
+        try:
+            suppl = Chem.SDMolSupplier(_temp_fp.name, sanitize=sanitize, removeHs=removeHs)
+            break
+        except OSError:
+            if attempt == 3:
+                raise
+            time.sleep(0.2 * (attempt + 1))
     mol = list(suppl)[0]
     mol.SetProp("DTXSID", dtxsid)
     return mol
