@@ -36,8 +36,8 @@ pip install pubchem-compounds
 ### From source
 
 ```bash
-git clone https://gitlab.com/lucmiaz/pubchem.git
-cd pubchem
+git clone https://github.com/LucMiaz/PubChemCompounds.git
+cd PubChemCompounds
 pip install -e .
 ```
 

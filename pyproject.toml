@@ -16,6 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Natural Language :: English",
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
@@ -34,9 +35,9 @@ dependencies = [
 requires-python = ">=3.9"
 
 [project.urls]
-Homepage      = "https://gitlab.com/lucmiaz/pubchem"
+Homepage      = "https://github.com/LucMiaz/PubChemCompounds"
 Documentation = "https://pubchem-compounds.readthedocs.io"
-Repository    = "https://gitlab.com/lucmiaz/pubchem.git"
+Repository    = "https://github.com/LucMiaz/PubChemCompounds.git"
 Changelog     = "https://pubchem-compounds.readthedocs.io/en/latest/changelog.html"
 
 [project.optional-dependencies]
