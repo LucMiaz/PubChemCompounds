@@ -4,6 +4,26 @@ All notable changes to pubchem-compounds are listed here, newest first.
 Versions follow [semantic versioning](https://semver.org/); dates are those of
 the version bump in `pyproject.toml`.
 
+## 1.1.4 (2026-11-12)
+
+### Fixed
+
+- `get_mols_from_cas` passed lists of CIDs to `get_mols_from_cids`, so the request URL contained `[962, 297]` and no molecule was returned.
+- `mol_from_comptox` / `mols_from_comptox` raised `TypeError` on Python 3.9–3.11 (`NamedTemporaryFile(delete_on_close=...)` only exists from 3.12).
+- `get_HSDB` no longer crashes when the request fails or a CID is missing from the reply, and ignores "HSDB" synonyms without a number.
+- `get_cids_from_smiles` encodes `#` and handles PubChem faults and non-JSON replies (it now delegates to `SMILES_to_pubchem`).
+- Request throttling: the random back-off now cycles through its intervals; the HTTP 403 counter counts consecutive refusals only (a success resets it), so long sessions no longer fail after ten scattered 403s; HTTP 503 ("server busy") is retried like 403; requests time out after 60 s instead of possibly hanging.
+
+### Changed
+
+- Temporary SDF files are written to the system temporary directory instead of the working directory.
+- CompTox messages (including the `mols_from_comptox` summary of skipped DTXSIDs) go through `logging` instead of `print`.
+- Project URLs point to the GitHub repository; CI tests Python 3.9–3.13; build artefacts and `__pycache__` removed from the repository.
+
+### Documentation
+
+- `__version__` is read from the package metadata (it reported 1.1.0 for 1.1.1–1.1.3); changelog entries for 1.1.1–1.1.3 and earlier versions; CompTox example; `synonyms_to_pubchem` in the API reference.
+
 ## 1.1.3 (2026-07-04)
 
 - Added `NoStructureError` (a subclass of `PubchemInputError`), raised by `mol_from_comptox` when CompTox has no structure on file for a DTXSID or returns content RDKit cannot parse.
