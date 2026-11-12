@@ -430,7 +430,21 @@ def get_mols_from_cas(
         An :class:`rdkit.Chem.SDMolSupplier` for the matched structures.
     """
     cids, _ = synonyms_to_pubchem(cas, substance=substance)
-    return get_mols_from_cids(list(cids.values()))
+    # Each value is a list of IDs; flatten (keeping order, dropping repeats),
+    # otherwise the request URL contains the Python list "[962, 297]".
+    flat = list(dict.fromkeys(cid for ids in cids.values() for cid in ids))
+    return get_mols_from_cids(flat)
+
+
+def _temp_sdf_path(index: int) -> str:
+    """Return a fresh temporary ``.sdf`` path (in the system temp directory).
+
+    The old default, ``sdffrompubchem_temp_<index>.sdf`` in the working
+    directory, left files behind on errors and collided between processes.
+    """
+    fd, path = tempfile.mkstemp(prefix="pubchem_", suffix=f"_{index}.sdf")
+    os.close(fd)
+    return path
 
 
 def get_cids_from_sids(
@@ -493,7 +507,7 @@ def get_mols_from_cids(
     if cids is not None and not isinstance(cids, list):
         cids = [cids]
     if filename is None:
-        filename = f"sdffrompubchem_temp_{index}.sdf"
+        filename = _temp_sdf_path(index)
     # Use "wb" for the first chunk so any stale file is always overwritten.
     mode = "wb"
     for ccids in get_chunks(cids, max_query):
@@ -551,7 +565,7 @@ def get_mols_from_sids(
     if sids is not None and not isinstance(sids, list):
         sids = [sids]
     if filename is None:
-        filename = f"sdffrompubchem_temp_{index}.sdf"
+        filename = _temp_sdf_path(index)
     mode = "wb"
     for ssids in get_chunks(sids, max_query):
         fsid = ",".join(str(x) for x in ssids)
@@ -608,13 +622,9 @@ def get_cids_from_smiles(smiles: str) -> Union[list, None]:
     Returns:
         List of CIDs, or ``None`` if not found.
     """
-    url = (
-        f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/"
-        f"{smiles}/cids/JSON"
-    )
-    response = safe_request(url)
-    data = json.loads(response)
-    return data.get("IdentifierList", {}).get("CID", None)
+    # Same request as SMILES_to_pubchem, which also URL-encodes '#' and
+    # handles PubChem faults and non-JSON replies.
+    return SMILES_to_pubchem(smiles) or None
 
 
 def synonyms_to_mols(
@@ -810,7 +820,7 @@ def get_HSDB(cids: Union[list, int]) -> Union[dict, int, None]:
     Raises:
         ValueError: If *cids* is not an int or a list.
     """
-    PAT = r"(?<=HSDB\s)(\d*)"
+    PAT = r"(?<=HSDB\s)(\d+)"
 
     def _find_hsdb(synonyms: list) -> Union[int, None]:
         for synonym in synonyms:
@@ -822,12 +832,12 @@ def get_HSDB(cids: Union[list, int]) -> Union[dict, int, None]:
         cids = [cids]
     elif not isinstance(cids, list):
         raise ValueError("cids must be an int or a list of ints")
-    info = (
-        get_from_cids(cids, target="synonyms")
-        .get("InformationList", {})
-        .get("Information", {})
-    )
-    data = {d["CID"]: _find_hsdb(d["Synonym"]) for d in info}
+    response = get_from_cids(cids, target="synonyms")
+    if response is None:   # request or JSON decoding failed
+        return None if len(cids) == 1 else {cid: None for cid in cids}
+    info = response.get("InformationList", {}).get("Information", [])
+    data = {cid: None for cid in cids}
+    data.update({d["CID"]: _find_hsdb(d.get("Synonym", [])) for d in info if "CID" in d})
     if len(cids) == 1:
         return data[cids[0]]
     return data
@@ -1012,14 +1022,21 @@ def decorate_tempfile(func):
         # forwarded to func (which may not accept them as kwargs).
         suffix = kwargs.pop('_suffix', '.sdf')
         mode = kwargs.pop('_mode', 'w')
-        # On Windows, a file opened with delete_on_close=True cannot be
-        # reopened by path (e.g. by Chem.SDMolSupplier) while still held
-        # open here; delete_on_close=False keeps it shareable until the
-        # `with` block exits.
-        delete_on_close = kwargs.pop('delete_on_close', False)
-        with tempfile.NamedTemporaryFile(delete_on_close=delete_on_close, suffix=suffix, mode=mode) as fp:
+        kwargs.pop('delete_on_close', None)  # accepted for backward compatibility
+        # delete=False so that Chem.SDMolSupplier can reopen the file by path
+        # while it is still open here (not possible on Windows otherwise); we
+        # remove it ourselves. (NamedTemporaryFile's delete_on_close, used
+        # before, only exists from Python 3.12 and raised TypeError on 3.9-3.11.)
+        fp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, mode=mode)
+        try:
             kwargs['_temp_fp'] = fp
             return func(*args, **kwargs)
+        finally:
+            fp.close()
+            try:
+                os.remove(fp.name)
+            except OSError:  # still locked (Windows antivirus); temp dir is cleaned anyway
+                logger.debug("Could not remove temporary file %s", fp.name)
     return wrapper
 
 
@@ -1054,9 +1071,9 @@ def mol_from_comptox(dtxsid, _temp_fp = None, sanitize = True, removeHs = False,
     url = f"https://comptox.epa.gov/dashboard-api/ccdapp1/chemical-files/mol/by-dtxsid/{dtxsid}"
     try:
         data = safe_request(url)
-    except Exception as e:
-        print(f"Error with {dtxsid}")
-        raise e
+    except Exception:
+        logger.error("CompTox request failed for %s", dtxsid)
+        raise
     if not data:
         raise NoStructureError(dtxsid, reason="CompTox has no structure on file for this DTXSID")
     _temp_fp.write(data.decode('utf-8'))
@@ -1123,7 +1140,8 @@ def mols_from_comptox(dtxsids, remove = True, _temp_fp = None, sanitize = True, 
         shown = ', '.join(missing[:20])
         if len(missing) > 20:
             shown += f', … (+{len(missing) - 20} more)'
-        print(f'mols_from_comptox: no structure for {len(missing)}/{len(dtxsids)} DTXSID(s): {shown}')
+        logger.warning('mols_from_comptox: no structure for %d/%d DTXSID(s): %s',
+                       len(missing), len(dtxsids), shown)
     if return_missing:
         return mols, missing
     return mols

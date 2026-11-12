@@ -440,3 +440,107 @@ class TestCasToMols:
         called_cids = mock_get_mols.call_args[0][0]
         assert called_cids == [962, 11234, 56789]
 
+
+
+# ---------------------------------------------------------------------------
+# Regression tests (1.1.4)
+# ---------------------------------------------------------------------------
+
+_WATER_MOLBLOCK = (
+    b"water\n  RDKit\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n"
+    b"    0.0000    0.0000    0.0000 O   0  0\nM  END\n$$$$\n"
+)
+
+
+class TestGetMolsFromCas:
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
+    def test_cid_lists_are_flattened(self, mock_req):
+        """The SDF URL must list CIDs, not a Python list of lists."""
+        mock_req.side_effect = [_json_bytes({"IdentifierList": {"CID": [962, 297]}}),
+                                _WATER_MOLBLOCK]
+        mols, _ = pubchem.get_mols_from_cas("7732-18-5")
+        sdf_url = mock_req.call_args_list[-1].args[0]
+        assert "/cid/962,297/SDF" in sdf_url
+        assert len(mols) == 1
+
+
+class TestTempSdf:
+    @patch("pubchem_compounds.pubchem_compounds.safe_request", return_value=_WATER_MOLBLOCK)
+    def test_default_sdf_not_in_working_directory(self, _mock_req, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        mols, filename = pubchem.get_mols_from_cids([962])
+        assert len(mols) == 1
+        assert not list(tmp_path.iterdir())          # nothing left in the cwd
+        assert not __import__("os").path.exists(filename)  # temp file removed
+
+
+class TestGetCidsFromSmiles:
+    @patch("pubchem_compounds.pubchem_compounds.safe_request")
+    def test_triple_bond_encoded(self, mock_req):
+        mock_req.return_value = _json_bytes({"IdentifierList": {"CID": [6326]}})
+        assert pubchem.get_cids_from_smiles("C#C") == [6326]
+        assert "%23" in mock_req.call_args.args[0]
+
+    @patch("pubchem_compounds.pubchem_compounds.safe_request", return_value=b"<html>busy</html>")
+    def test_non_json_returns_none(self, _mock_req):
+        assert pubchem.get_cids_from_smiles("CCO") is None
+
+
+class TestGetHSDB:
+    @patch("pubchem_compounds.pubchem_compounds.get_from_cids", return_value=None)
+    def test_failed_request(self, _mock):
+        assert pubchem.get_HSDB(962) is None
+        assert pubchem.get_HSDB([962, 297]) == {962: None, 297: None}
+
+    @patch("pubchem_compounds.pubchem_compounds.get_from_cids")
+    def test_missing_cid_and_empty_number(self, mock_get):
+        mock_get.return_value = {"InformationList": {"Information": [
+            {"CID": 962, "Synonym": ["HSDB 229", "water"]},
+            {"CID": 297, "Synonym": ["HSDB  (none)"]},
+        ]}}
+        assert pubchem.get_HSDB([962, 297, 241]) == {962: 229, 297: None, 241: None}
+
+
+class TestMolFromComptox:
+    @patch("pubchem_compounds.pubchem_compounds.safe_request", return_value=_WATER_MOLBLOCK)
+    def test_works_and_cleans_up(self, _mock_req):
+        """Runs on every supported Python (delete_on_close needed 3.12)."""
+        import glob, tempfile
+        before = set(glob.glob(tempfile.gettempdir() + "/*.sdf"))
+        mol = pubchem.mol_from_comptox("DTXSID6026296")
+        assert mol.GetProp("DTXSID") == "DTXSID6026296"
+        assert set(glob.glob(tempfile.gettempdir() + "/*.sdf")) == before
+
+    @patch("pubchem_compounds.pubchem_compounds.safe_request", return_value=b"")
+    def test_missing_structure_is_skipped(self, _mock_req):
+        mols, missing = pubchem.mols_from_comptox(["DTXSID0"], return_missing=True)
+        assert mols == [] and missing == ["DTXSID0"]
+
+
+class TestThrottle:
+    def _decorated(self, statuses):
+        from pubchem_compounds.throttle import metered_request_decorator
+        responses = iter(MagicMock(status_code=s) for s in statuses)
+        deco = metered_request_decorator(max_requests_s=1000, max_requests_mn=100000)
+        deco.random = [0.0] * 10
+        return deco(lambda: next(responses)), metered_request_decorator
+
+    def test_retries_403_and_503_then_resets(self):
+        fn, cls = self._decorated([403, 503, 200])
+        cls.STATUS_403 = 0
+        assert fn().status_code == 200
+        assert cls.STATUS_403 == 0   # consecutive counter reset by the success
+
+    def test_raises_after_max_consecutive(self):
+        fn, cls = self._decorated([503] * 20)
+        cls.STATUS_403 = 0
+        with pytest.raises(Exception, match="times in a row"):
+            fn()
+        cls.STATUS_403 = 0
+
+    @patch("pubchem_compounds.throttle.requests.get")
+    def test_default_timeout(self, mock_get):
+        from pubchem_compounds.throttle import metered_request, REQUEST_TIMEOUT
+        mock_get.return_value = MagicMock(status_code=200)
+        metered_request("https://example.org")
+        assert mock_get.call_args.kwargs["timeout"] == REQUEST_TIMEOUT

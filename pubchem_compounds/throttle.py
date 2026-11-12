@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 import requests
 import time
 import numpy as np
-import regex as re
 import logging
 from functools import wraps
 logger = logging.getLogger(__name__)
@@ -17,9 +16,14 @@ class metered_request_decorator:
 
     When either limit is reached the decorator sleeps for a random
     interval drawn from a Poisson distribution before retrying.  HTTP
-    403 responses are retried once with an additional sleep; after 10
-    consecutive 403 errors an exception is raised.
+    403 (request-rate block) and 503 (server busy) responses are retried
+    after an additional sleep; after 10 consecutive such responses an
+    exception is raised.
     """
+
+    #: Status codes PubChem uses for "slow down" / "busy": retried.
+    RETRY_STATUSES = (403, 503)
+    MAX_RETRIES = 10
 
     requests_mn: list = []
     STATUS_403: int = 0
@@ -76,7 +80,8 @@ class metered_request_decorator:
         """
         while self.check() is False:
             time.sleep(self.random[self.i])
-            self.i = self.i % 10
+            # Cycle through the 10 pre-drawn intervals (the index used to stay at 0).
+            self.i = (self.i + 1) % 10
         response = fn(*args, **kwargs)
         self.update()
         return response
@@ -92,21 +97,31 @@ class metered_request_decorator:
             A wrapper function with the same signature as *fn*.
 
         Raises:
-            Exception: If more than 10 consecutive HTTP 403 responses
-                are received.
+            Exception: If more than :attr:`MAX_RETRIES` consecutive HTTP
+                403/503 responses are received.
         """
         @wraps(fn)
         def wrapper(*args, **kwargs):
             response = self.run(fn, *args, **kwargs)
-            if response.status_code == 403:
-                logging.info('\n got response 403')
+            while response.status_code in self.RETRY_STATUSES:
+                logger.warning("PubChem returned HTTP %s, retrying", response.status_code)
                 metered_request_decorator.STATUS_403 += 1
-                if metered_request_decorator.STATUS_403 > 10:
-                    raise Exception('MAX STATUS 403 REACHED!')
+                if metered_request_decorator.STATUS_403 > self.MAX_RETRIES:
+                    raise Exception(
+                        f"PubChem returned HTTP {response.status_code} "
+                        f"{self.MAX_RETRIES} times in a row")
                 time.sleep(self.random[self.i])
-                return self.run(fn, *args, **kwargs)
+                self.i = (self.i + 1) % 10
+                response = self.run(fn, *args, **kwargs)
+            # The counter is for *consecutive* refusals: a success resets it,
+            # otherwise ten refusals spread over a long session would raise.
+            metered_request_decorator.STATUS_403 = 0
             return response
         return wrapper
+
+
+#: Seconds before a request to PubChem/CompTox is abandoned.
+REQUEST_TIMEOUT = 60
 
 
 @metered_request_decorator()
@@ -119,11 +134,14 @@ def metered_request(_url: str, **params):
     Args:
         _url: URL to fetch.
         **params: Additional keyword arguments forwarded to
-            :func:`requests.get`.
+            :func:`requests.get`.  ``timeout`` defaults to
+            :data:`REQUEST_TIMEOUT` seconds so a stalled connection cannot
+            block forever.
 
     Returns:
         :class:`requests.Response` object.
     """
+    params.setdefault("timeout", REQUEST_TIMEOUT)
     return requests.get(_url, **params)
 
 
