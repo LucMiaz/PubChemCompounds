@@ -120,7 +120,7 @@ print(processed["DTXSID9020584"])
 Via CompTox
 
 ```python
-from pubchemcompounds import mols_from_comptox
+from pubchem_compounds import mols_from_comptox
 mols = mols_from_comptox(["DTXSID4059916"])
 ```
 

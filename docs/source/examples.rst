@@ -113,6 +113,18 @@ InChI / SMILES conversion
     processed, failed = pc.dtxsid_to_smiles(["DTXSID9020584"])
     print(processed["DTXSID9020584"])
 
+**DTXSID to RDKit molecules via CompTox** (bypasses PubChem)
+
+.. code-block:: python
+
+    mol = pc.mol_from_comptox("DTXSID4059916")
+    print(mol.GetProp("DTXSID"), mol.GetNumAtoms())
+
+    # Batch: DTXSIDs without a structure at CompTox are skipped, not fatal
+    mols, missing = pc.mols_from_comptox(
+        ["DTXSID4059916", "DTXSID9020584"], return_missing=True
+    )
+
 **Any synonym to SMILES** (CAS, DTXSID, compound name, …)
 
 .. code-block:: python

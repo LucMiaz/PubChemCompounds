@@ -8,7 +8,13 @@ re-exported at the package level for convenience::
     from pubchem_compounds import cas_to_cid, cid_to_cas, get_from_cids
 """
 
-__version__ = "1.1.0"
+# Read the version from the installed distribution so it cannot drift from
+# pyproject.toml (it was left at 1.1.0 through releases 1.1.1-1.1.3).
+try:
+    from importlib.metadata import PackageNotFoundError, version as _version
+    __version__ = _version("pubchem-compounds")
+except PackageNotFoundError:  # running from a source tree that was never installed
+    __version__ = "unknown"
 
 from .throttle import safe_request
 from .pubchem_compounds import (

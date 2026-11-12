@@ -1,6 +1,33 @@
 Changelog
 =========
 
+1.1.3 (2026-07-04)
+-------------------
+
+* Added :class:`~pubchem_compounds.NoStructureError` (a subclass of
+  :class:`~pubchem_compounds.PubchemInputError`), raised by
+  :func:`~pubchem_compounds.mol_from_comptox` when CompTox has no structure on
+  file for a DTXSID or returns content RDKit cannot parse.
+* :func:`~pubchem_compounds.mols_from_comptox` skips DTXSIDs without a
+  structure instead of aborting the batch, prints a one-line summary of the
+  skipped ones, and returns ``(mols, missing)`` with ``return_missing=True``.
+* The Windows file-lock retry in :func:`~pubchem_compounds.mol_from_comptox`
+  now only retries on the "used by another process" error.
+
+1.1.2 (2026-07-03)
+-------------------
+
+* :func:`~pubchem_compounds.mol_from_comptox` retries reading the downloaded
+  file when Windows antivirus scanning briefly locks it.
+* ``mol_from_comptox`` and ``mols_from_comptox`` exported at package level.
+
+1.1.1 (2026-07-03)
+-------------------
+
+* Added :func:`~pubchem_compounds.mol_from_comptox` and
+  :func:`~pubchem_compounds.mols_from_comptox`: fetch RDKit molecules for
+  DTXSIDs directly from the EPA CompTox Dashboard.
+
 1.1.0 (2026-04-03)
 -------------------
 

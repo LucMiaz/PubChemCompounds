@@ -8,6 +8,7 @@ Core lookup functions
 
 .. autofunction:: cas_to_cid
 .. autofunction:: cas_to_sid
+.. autofunction:: synonyms_to_pubchem
 .. autofunction:: cas_to_pubchem
 .. autofunction:: single_synonym_to_pubchem
 .. autofunction:: inchikey_to_pubchem
